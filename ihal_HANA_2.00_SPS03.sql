@@ -42,6 +42,7 @@ WITH
 - 2017/12/01:  3.0 QPCM initial modification
 - 2018/04/03:  3.1 QPCM update
 - 2018/06/16:  3.2 QPCM update
+- 2018/07/03:  3.3 QPCM update: P included 
 
 [INVOLVED TABLES]
 
@@ -1255,25 +1256,30 @@ PARAMETER_INFOS AS
     SELECT 3, 'ALL',         'xsengine.ini',         'row_engine',               'parallel_query_execution',                  ' ', 'false',                    '-- no recommendation --', '-- no recommendation --', '-- no recommendation --', 60,    69,  1,  1, '2000792', 'memory',         ' ' FROM DUMMY UNION ALL
     SELECT 3, 'ALL',         'xsengine.ini',         'row_engine',               'parallel_query_execution',                  ' ', 'false',                    '-- no recommendation --', '-- no recommendation --', '-- no recommendation --', 70,    70,  1,  1, '2000792', 'memory',         ' ' FROM DUMMY UNION ALL
     SELECT 0, 'ALL',         'xsengine.ini',         'scheduler',                'enabled',                                   ' ', '-- no recommendation --',  '-- no recommendation --', '-- no recommendation --', '-- no recommendation --', -1,    -1, -1, -1, '2160230', 'xsengine',       'A' FROM DUMMY UNION ALL
-    SELECT 'MULTI','indexserver.ini','query_mediator','cache_enable',' ','0','-- no recommendation --','-- no recommendation --','-- no recommendation --',20,21.999,2,2,'2555376','indexserver_crash;scale-out;sql_plan_cache',' ' from DUMMY UNION ALL
-SELECT 'SYSREP','global.ini','communication','ssl',' ','systempki','-- no recommendation --','-- no recommendation --','-- no recommendation --',30,-1,2,2,'2618451-1','SSL;encryption;MDC;system_replication',' ' from DUMMY UNION ALL
-SELECT 'SYSREP','global.ini','system_replication_communication','enable_ssl',' ','on','-- no recommendation --','-- no recommendation --','-- no recommendation --',30,-1,2,2,'2618451-2','SSL;encryption;MDC;system_replication',' ' from DUMMY UNION ALL
-SELECT 'ALL','indexserver.ini','session','fda_enable',' ','off','-- no recommendation --','-- no recommendation --','-- no recommendation --',30,-1,2,2,'2627679','FDA;workprocess;signal_11',' ' from DUMMY UNION ALL
-SELECT 'ALL','indexserver.ini','performance_analyzer','planviz_enable',' ','false','-- no recommendation --','-- no recommendation --','-- no recommendation --',30,-1,2,2,'2637828','memory_leak;performance;planviz;trace',' ' from DUMMY UNION ALL
-SELECT 'ALL','indexserver.ini','joins','virtual_vids_bitvector_threshold',' ','1000000000','-- no recommendation --','-- no recommendation --','-- no recommendation --',30,-1,2,2,'2642704','indexserver_crash;partitioning;join_engine',' ' from DUMMY UNION ALL
-SELECT 'ALL','indexserver.ini','delta','use_massupdates',' ','false','-- no recommendation --','-- no recommendation --','-- no recommendation --',30,30.999,2,2,'2632716','indexserver_crash;attribute_engine;inverted_index;',' ' from DUMMY UNION ALL
-SELECT 'ALL','indexserver.ini','sql','esx_level',' ','0','-- no recommendation --','-- no recommendation --','-- no recommendation --',30,-1,2,2,'2639068','ESX;indexserver_crash;signal_6;signal_11',' ' from DUMMY UNION ALL
-SELECT 'ALL','global.ini','performance_analyzer','plan_trace_enable',' ','false','-- no recommendation --','-- no recommendation --','-- no recommendation --',30,30.999,2,2,'2643064','indexserver_crash;trace;planviz;signal_11',' ' from DUMMY UNION ALL
-SELECT 'ALL','global.ini','persistence','non_trans_cch_block_size',' ','134217728','-- no recommendation --','-- no recommendation --','-- no recommendation --',30,-1,2,2,'1999998-21','parameter;delta_merge',' ' from DUMMY UNION ALL
-SELECT 'ALL','indexserver.ini','performance_analyzer','planviz_enable',' ','false','-- no recommendation --','-- no recommendation --','-- no recommendation --',30,-1,2,2,'2600030-22','indexserver_crash;planviz',' ' from DUMMY UNION ALL
-SELECT 'ALL','indexserver.ini','transaction','lock_wait_timeout',' ','5*<timeout_in_ms>','-- no recommendation --','-- no recommendation --','-- no recommendation --',30,-1,2,2,'2549013-2','lock_manager;deadlock',' ' from DUMMY UNION ALL
-SELECT 'ALL','indexserver.ini','sql','cs_equi_cond_update_optimization_batch_size',' ','1000000','-- no recommendation --','-- no recommendation --','-- no recommendation --',30,30.999,2,2,'2644935','LOB;wrong_result;consistency',' ' from DUMMY UNION ALL
-SELECT 'ALL','indexserver.ini','sql','esx_level',' ','0','-- no recommendation --','-- no recommendation --','-- no recommendation --',30,30.999,2,2,'2642235','ESX;indexserver_crash;planviz;FDA',' ' from DUMMY UNION ALL
-SELECT 'ALL','nameserver.ini','statisticsserver','active',' ','true','-- no recommendation --','-- no recommendation --','-- no recommendation --',30,-1,2,2,'2644242','statisticsserver;system_view;upgrade',' ' from DUMMY UNION ALL
-SELECT 'ALL','indexserver.ini','statisticsserver','threadpool',' ','0','-- no recommendation --','-- no recommendation --','-- no recommendation --',30,-1,2,2,'2584388','Memory_leak;',' ' from DUMMY UNION ALL
-SELECT 'ALL','global.ini','backup','data_backup_buffer_size',' ','1536','-- no recommendation --','-- no recommendation --','-- no recommendation --',30,-1,2,2,'2657261-1','backup;backint;performance',' ' from DUMMY UNION ALL
-SELECT 'ALL','global.ini','backup','parallel_data_backup_backint_channels',' ','3','-- no recommendation --','-- no recommendation --','-- no recommendation --',30,-1,2,2,'2657261-2','backup;backint;performance',' ' from DUMMY UNION ALL
-SELECT 'SYSREP','global.ini','system_replication','check_secondary_active_status',' ','false','-- no recommendation --','-- no recommendation --','-- no recommendation --',30,30.999,2,2,'2649721','system_replication;lock_manager;system_view',' ' from DUMMY UNION ALL
+    SELECT 4,'SYSREP','global.ini','communication','ssl',' ','systempki','-- no recommendation --','-- no recommendation --','-- no recommendation --',30,-1,2,2,'2618451-1','SSL;encryption;MDC;system_replication',' ' from DUMMY UNION ALL
+SELECT 4,'SYSREP','global.ini','system_replication_communication','enable_ssl',' ','on','-- no recommendation --','-- no recommendation --','-- no recommendation --',30,-1,2,2,'2618451-2','SSL;encryption;MDC;system_replication',' ' from DUMMY UNION ALL
+SELECT 2,'ALL','indexserver.ini','session','fda_enable',' ','off','-- no recommendation --','-- no recommendation --','-- no recommendation --',30,-1,2,2,'2627679','FDA;workprocess;signal_11',' ' from DUMMY UNION ALL
+SELECT 2,'ALL','indexserver.ini','performance_analyzer','planviz_enable',' ','false','-- no recommendation --','-- no recommendation --','-- no recommendation --',30,-1,2,2,'2637828','memory_leak;performance;planviz;trace',' ' from DUMMY UNION ALL
+SELECT 1,'ALL','indexserver.ini','joins','virtual_vids_bitvector_threshold',' ','1000000000','-- no recommendation --','-- no recommendation --','-- no recommendation --',30,-1,2,2,'2642704','indexserver_crash;partitioning;join_engine',' ' from DUMMY UNION ALL
+SELECT 1,'ALL','indexserver.ini','delta','use_massupdates',' ','false','-- no recommendation --','-- no recommendation --','-- no recommendation --',30,30.999,2,2,'2632716','indexserver_crash;attribute_engine;inverted_index;',' ' from DUMMY UNION ALL
+SELECT 1,'ALL','indexserver.ini','sql','esx_level',' ','0','-- no recommendation --','-- no recommendation --','-- no recommendation --',30,-1,2,2,'2639068','ESX;indexserver_crash;signal_6;signal_11',' ' from DUMMY UNION ALL
+SELECT 2,'ALL','global.ini','performance_analyzer','plan_trace_enable',' ','false','-- no recommendation --','-- no recommendation --','-- no recommendation --',30,30.999,2,2,'2643064','indexserver_crash;trace;planviz;signal_11',' ' from DUMMY UNION ALL
+SELECT 2,'ALL','global.ini','persistence','non_trans_cch_block_size',' ','134217728','-- no recommendation --','-- no recommendation --','-- no recommendation --',30,-1,2,2,'1999998-21','parameter;delta_merge',' ' from DUMMY UNION ALL
+SELECT 1,'ALL','indexserver.ini','performance_analyzer','planviz_enable',' ','false','-- no recommendation --','-- no recommendation --','-- no recommendation --',30,-1,2,2,'2600030-22','indexserver_crash;planviz',' ' from DUMMY UNION ALL
+SELECT 2,'ALL','indexserver.ini','transaction','lock_wait_timeout',' ','5*<timeout_in_ms>','-- no recommendation --','-- no recommendation --','-- no recommendation --',30,-1,2,2,'2549013-2','lock_manager;deadlock;XS_engine',' ' from DUMMY UNION ALL
+SELECT 1,'ALL','indexserver.ini','sql','cs_equi_cond_update_optimization_batch_size',' ','1000000','-- no recommendation --','-- no recommendation --','-- no recommendation --',30,30.999,2,2,'2644935','LOB;wrong_result;consistency',' ' from DUMMY UNION ALL
+SELECT 1,'ALL','indexserver.ini','sql','esx_level',' ','0','-- no recommendation --','-- no recommendation --','-- no recommendation --',30,30.999,2,2,'2642235','ESX;indexserver_crash;planviz;FDA',' ' from DUMMY UNION ALL
+SELECT 3,'ALL','nameserver.ini','statisticsserver','active',' ','true','-- no recommendation --','-- no recommendation --','-- no recommendation --',30,-1,2,2,'2644242','statisticsserver;system_view;upgrade',' ' from DUMMY UNION ALL
+SELECT 2,'ALL','indexserver.ini','statisticsserver','threadpool',' ','0','-- no recommendation --','-- no recommendation --','-- no recommendation --',30,-1,2,2,'2584388','Memory_leak;',' ' from DUMMY UNION ALL
+SELECT 3,'ALL','global.ini','backup','data_backup_buffer_size',' ','1536','-- no recommendation --','-- no recommendation --','-- no recommendation --',30,-1,2,2,'2657261-1','backup;backint;performance',' ' from DUMMY UNION ALL
+SELECT 3,'ALL','global.ini','backup','parallel_data_backup_backint_channels',' ','3','-- no recommendation --','-- no recommendation --','-- no recommendation --',30,-1,2,2,'2657261-2','backup;backint;performance',' ' from DUMMY UNION ALL
+SELECT 3,'SYSREP','global.ini','system_replication','check_secondary_active_status',' ','false','-- no recommendation --','-- no recommendation --','-- no recommendation --',30,30.999,2,2,'2649721','system_replication;lock_manager;system_view',' ' from DUMMY UNION ALL
+SELECT 4,'ALL','global.ini','resource_tracking','service_thread_sampling_monitor_enabled',' ','true','-- no recommendation --','-- no recommendation --','-- no recommendation --',30,-1,2,2,'2600030-24','thread;monitoring',' ' from DUMMY UNION ALL
+SELECT 1,'ALL','indexserver.ini','sql','use_cfl_for_esx_expression',' ','false','-- no recommendation --','-- no recommendation --','-- no recommendation --',30,-1,2,2,'2660294','indexserver_crash;ESX;memory_manager',' ' from DUMMY UNION ALL
+SELECT 2,'ALL','indexserver.ini','calcengine','enforce_bigint_counters',' ','1','-- no recommendation --','-- no recommendation --','-- no recommendation --',30,30.999,2,2,'2648134','calc_view;calc_engine;attribute_engine',' ' from DUMMY UNION ALL
+SELECT 3,'ALL','indexserver.ini','session','data_format_version',' ','8','-- no recommendation --','-- no recommendation --','-- no recommendation --',30,30.999,2,2,'2639764','SQL_round;wrong_result',' ' from DUMMY UNION ALL
+SELECT 1,'MULTI','indexserver.ini','search','late_materialization_threshold',' ','-1','-- no recommendation --','-- no recommendation --','-- no recommendation --',30,-1,2,2,'2662717','indexserver_crash;scale-out;late_materialization',' ' from DUMMY UNION ALL
+SELECT 1,'ALL','indexserver.ini','sql','hex_enabled',' ','false','-- no recommendation --','-- no recommendation --','-- no recommendation --',30,-1,2,2,'2663190','indexserver_crash;HEX;LOB',' ' from DUMMY UNION ALL
     SELECT 3, 'ALL',         'xsengine.ini',         'sql',                      'use_startup_timezone',                      ' ', 'false',                    '-- no recommendation --', '-- no recommendation --', '-- no recommendation --', 65,    68,  1,  1, '1932132', 'terminations',   ' ' FROM DUMMY 
   ) P
 ),
@@ -1606,7 +1612,7 @@ FROM
   ( SELECT 
       14, 
       'QPCM Statement version:',
-      '3.2.1 (2018/06/16)',
+      '3.3.1 (2018/07/04)',
       '', '', '', '', '', '', '', '', ''
     FROM
       DUMMY

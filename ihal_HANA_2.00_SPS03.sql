@@ -25,7 +25,7 @@ WITH
 - Statistics server type: all
 
 [SQL COMMAND VERSION]
-0
+
 - 2014/03/31:  1.0 (initial version)
 - 2014/05/13:  1.1 (EXCLUDE_ADMINISTRATIVE_MODIFICATIONS included)
 - 2014/09/04:  1.2 (included possibility to check against two disjunct recommended value ranges)
@@ -39,10 +39,12 @@ WITH
 - 2016/08/13:  2.7 (IMPLEMENTATION_COMMAND and UNDO_COMMAND included)
 - 2016/12/02:  2.8 (NUM_SLAVES included)
 - 2018/05/10:  2.9 (priority P included)
+- 2018/06/23:  3.0 (reporting of invalid number values like '10.00', '40 to 80' or '4G')
 - 2017/12/01:  3.0 QPCM initial modification
 - 2018/04/03:  3.1 QPCM update
 - 2018/06/16:  3.2 QPCM update
 - 2018/07/03:  3.3 QPCM update: P included 
+
 
 [INVOLVED TABLES]
 
@@ -116,7 +118,7 @@ WITH
   - BPC:    Business objects planning and consolidation
   - BW:     Business warehouse
   - CRM:    Customer relationship management
-  - ERP:    Enterprise resource planning (incl. SoH, S4HANA)
+  - ERP:    Enterprise resource planning (incl. SoH, S/4HANA)
   - ESS:    Embedded statistics server
   - EWM:    Extended warehouse management
   - FRA:    Fraud management
@@ -128,12 +130,14 @@ WITH
   - MULTI:  Scale-out / multi node
   - PORTAL: Enterprise Portal
   - PROD:   Production system
+  - S4:     S/4HANA
   - SCM:    Supply chain management
   - SDA:    Smart data access
   - SINGLE: Single node
   - SRM:    Supplier relationship management
   - SSS:    Standalone statistics server
   - SYSREP: System replication
+  - XFS:    XFS file system
 
   'ERP'          --> Provide recommendations for ERP environments
   'BW,MULTI'     --> Provide recommendations for BW scale-out environments
@@ -174,11 +178,12 @@ WITH
 - FILE_NAME:              Parameter file name
 - SECTION:                Parameter file section
 - PARAMETER_NAME:         Parameter name
+- P:                      Priority (1 -> Very high, 2 -> High, 3 -> Medium, 4 -> Low), only shown for explicit value recommendations
 - DEFAULT_VALUE:          Parameter value default
 - CONFIGURED_VALUE:       Parameter value explicitly configured
 - RECOMMENDED_VALUE:      Parameter value recommendation
 - SAP_NOTE:               SAP Notes with further details for parameter
-- CONFIGURED_HOST:        Parameter host explicitly configured,
+- CONFIG_LAYER:           Layer of explicitly configured parameter
 - IMPLEMENTATION_COMMAND: Command to implement the recommended parameter changes (needs to be adjusted in case of ranges, individual requirements or TENANT related settings)
 - UNDO_COMMAND:           Command to undo the recommended parameter changes (needs to be adjusted in case of individual requirements or TENANT related settings)
 
@@ -293,13 +298,14 @@ BASIS_INFO AS
         TABLE_NAME IN ('MARA', 'BSEG', 'ACDOCA', 'PPOIX')
     ),
     ( SELECT
-        MAP(IFNULL(SYSTEM_VALUE, IFNULL(HOST_VALUE, DEFAULT_VALUE)), 'true', 'Yes', NULL, 'Yes', 'No') ESS
+        MAP(IFNULL(SYSTEM_VALUE, IFNULL(DATABASE_VALUE, IFNULL(HOST_VALUE, DEFAULT_VALUE))), 'true', 'Yes', NULL, 'Yes', 'No') ESS
       FROM
         DUMMY LEFT OUTER JOIN
       ( SELECT
-          MAX(MAP(LAYER_NAME, 'DEFAULT', VALUE)) DEFAULT_VALUE,
-          MAX(MAP(LAYER_NAME, 'HOST',    VALUE)) HOST_VALUE,
-          MAX(MAP(LAYER_NAME, 'SYSTEM',  VALUE)) SYSTEM_VALUE
+          MAX(MAP(LAYER_NAME, 'DEFAULT', VALUE))  DEFAULT_VALUE,
+          MAX(MAP(LAYER_NAME, 'HOST',    VALUE))  HOST_VALUE,
+          MAX(MAP(LAYER_NAME, 'SYSTEM',  VALUE))  SYSTEM_VALUE,
+          MAX(MAP(LAYER_NAME, 'DATABASE', VALUE)) DATABASE_VALUE
         FROM
           M_INIFILE_CONTENTS
         WHERE
@@ -355,12 +361,13 @@ BASIS_INFO AS
         CASE WHEN P.DB_TYPE = 'multidb' AND D.DATABASE_NAME != 'SYSTEMDB' THEN 'Yes' ELSE 'No' END MDCTEN
       FROM
       ( SELECT
-          IFNULL(SYSTEM_VALUE, IFNULL(HOST_VALUE, DEFAULT_VALUE)) DB_TYPE
+          IFNULL(SYSTEM_VALUE, IFNULL(DATABASE_VALUE, IFNULL(HOST_VALUE, DEFAULT_VALUE))) DB_TYPE
         FROM
         ( SELECT
-            MAX(MAP(LAYER_NAME, 'DEFAULT', VALUE)) DEFAULT_VALUE,
-            MAX(MAP(LAYER_NAME, 'HOST',    VALUE)) HOST_VALUE,
-            MAX(MAP(LAYER_NAME, 'SYSTEM',  VALUE)) SYSTEM_VALUE
+            MAX(MAP(LAYER_NAME, 'DEFAULT', VALUE))  DEFAULT_VALUE,
+            MAX(MAP(LAYER_NAME, 'HOST',    VALUE))  HOST_VALUE,
+            MAX(MAP(LAYER_NAME, 'SYSTEM',  VALUE))  SYSTEM_VALUE,
+            MAX(MAP(LAYER_NAME, 'DATABASE', VALUE)) DATABASE_VALUE
           FROM
             M_INIFILE_CONTENTS
           WHERE
@@ -375,12 +382,13 @@ BASIS_INFO AS
         CASE WHEN P.DB_TYPE = 'multidb' AND D.DATABASE_NAME = 'SYSTEMDB' THEN 'Yes' ELSE 'No' END MDCSYS
       FROM
       ( SELECT
-          IFNULL(SYSTEM_VALUE, IFNULL(HOST_VALUE, DEFAULT_VALUE)) DB_TYPE
+          IFNULL(SYSTEM_VALUE, IFNULL(DATABASE_VALUE, IFNULL(HOST_VALUE, DEFAULT_VALUE))) DB_TYPE
         FROM
         ( SELECT
             MAX(MAP(LAYER_NAME, 'DEFAULT', VALUE)) DEFAULT_VALUE,
             MAX(MAP(LAYER_NAME, 'HOST',    VALUE)) HOST_VALUE,
-            MAX(MAP(LAYER_NAME, 'SYSTEM',  VALUE)) SYSTEM_VALUE
+            MAX(MAP(LAYER_NAME, 'SYSTEM',  VALUE)) SYSTEM_VALUE,
+            MAX(MAP(LAYER_NAME, 'DATABASE', VALUE)) DATABASE_VALUE
           FROM
             M_INIFILE_CONTENTS
           WHERE
@@ -458,26 +466,7 @@ BASIS_INFO AS
   ) F,
   ( SELECT
       VERSION,
-      REVISION,
-      CASE 
-        WHEN VERSION = 1 THEN
-        CASE
-          WHEN REVISION BETWEEN 120 AND 129.99 THEN 12
-          WHEN REVISION BETWEEN 110 AND 119.99 THEN 11
-          WHEN REVISION BETWEEN 100 AND 109.99 THEN 10
-          WHEN REVISION BETWEEN  90 AND  99.99 THEN  9
-          WHEN REVISION BETWEEN  80 AND  89.99 THEN  8
-          WHEN REVISION BETWEEN  70 AND  79.99 THEN  7
-          WHEN REVISION BETWEEN  60 AND  69.99 THEN  6
-          WHEN REVISION BETWEEN  45 AND  59.99 THEN  5
-          WHEN REVISION BETWEEN  28 AND  44.99 THEN  4
-          WHEN REVISION BETWEEN  20 AND  27.99 THEN  3
-          WHEN REVISION BETWEEN  12 AND  19.99 THEN  2
-          WHEN REVISION BETWEEN   1 AND  11.99 THEN  1
-        END
-        WHEN VERSION = 2 THEN
-          0
-      END SPS
+      REVISION
     FROM
     ( SELECT
         TO_NUMBER(SUBSTR(VALUE, 1, 1)) VERSION,
@@ -539,12 +528,7 @@ BASIS_INFO AS
 PARAMETER_INFOS AS
 ( SELECT
     P.ENV,
-    CASE
-      WHEN BI.ENV LIKE '%MDCSYS%' AND P.FILE_NAME = 'indexserver.ini' THEN 'nameserver.ini'
-      WHEN BI.ENV LIKE '%MDCSYS%' AND P.FILE_NAME = 'indexserver_strict.ini' THEN 'indexserver.ini'
-      WHEN BI.ENV LIKE '%MDC%'    AND P.FILE_NAME = 'nameserver.ini'  THEN 'indexserver.ini'
-      ELSE P.FILE_NAME
-    END FILE_NAME,
+    P.FILE_NAME,
     P.P,
     P.SECTION,
     P.PARAMETER_NAME,
@@ -561,7 +545,6 @@ PARAMETER_INFOS AS
     P.AREA,
     P.TYPE
   FROM
-    BASIS_INFO BI,
   ( SELECT 0 P, 'ALL' ENV,     ' ' FILE_NAME,          ' ' SECTION,                ' ' PARAMETER_NAME,                          ' ' NOT_1, ' ' MIN_VALUE_1,      ' ' MAX_VALUE_1,         ' ' MIN_VALUE_2,           ' ' MAX_VALUE_2,           -1 MIN_REV, -1 MAX_REV, -1 MIN_VERS, -1 MAX_VERS, '' SAP_NOTE, ' ' AREA, ' 'TYPE FROM DUMMY WHERE 1 = 0 UNION ALL
     SELECT 0, 'ALL',         '%',                    'authentication',           '%',                                         ' ', '-- no recommendation --',  '-- no recommendation --', '-- no recommendation --', '-- no recommendation --', -1,    -1, -1, -1, '2159014', 'security',       'S' FROM DUMMY UNION ALL
     SELECT 0, 'ALL',         '%',                    'communication',            'default_read_timeout',                      ' ', '-- no recommendation --',  '-- no recommendation --', '-- no recommendation --', '-- no recommendation --', -1,    -1, -1, -1, '2000003', 'terminations',   ' ' FROM DUMMY UNION ALL
@@ -577,6 +560,8 @@ PARAMETER_INFOS AS
     SELECT 0, 'ALL',         '%',                    'row_engine',               'startup_consistency_check_timeout',         ' ', '-- no recommendation --',  '-- no recommendation --', '-- no recommendation --', '-- no recommendation --', -1,    -1, -1, -1, '2116157', 'consistency',    ' ' FROM DUMMY UNION ALL
     SELECT 0, 'ALL',         '%',                    'sqltrace',                 '%',                                         ' ', '-- no recommendation --',  '-- no recommendation --', '-- no recommendation --', '-- no recommendation --', -1,    -1, -1, -1, '2119087', 'monitoring',     ' ' FROM DUMMY UNION ALL
     SELECT 3, 'SYSREP',      '%',                    'system_replication',       'logshipping_async_buffer_size',             ' ', '1073741824',               '-- no recommendation --', '-- no recommendation --', '-- no recommendation --', -1,    73,  1,  1, '2086024', 'system rep.',    ' ' FROM DUMMY UNION ALL
+    SELECT 0, 'ALL',         '%',                    'task_framework',           'task_data_retention_period',                ' ', '-- no recommendation --',  '-- no recommendation --', '-- no recommendation --', '-- no recommendation --', -1,    -1, -1, -1, '2169283', 'garbage coll.',  ' ' FROM DUMMY UNION ALL
+    SELECT 0, 'ALL',         '%',                    'task_framework',           'task_data_retention_period_check_interval', ' ', '-- no recommendation --',  '-- no recommendation --', '-- no recommendation --', '-- no recommendation --', -1,    -1, -1, -1, '2169283', 'garbage coll.',  ' ' FROM DUMMY UNION ALL
     SELECT 0, 'ALL',         '%',                    'trace',                    '%',                                         ' ', '-- no recommendation --',  '-- no recommendation --', '-- no recommendation --', '-- no recommendation --', -1,    -1, -1, -1, '2119087', 'monitoring',     ' ' FROM DUMMY UNION ALL
     SELECT 0, 'ALL',         '%',                    'traceprofile%',            '%',                                         ' ', '-- no recommendation --',  '-- no recommendation --', '-- no recommendation --', '-- no recommendation --', -1,    -1, -1, -1, '2119087', 'monitoring',     ' ' FROM DUMMY UNION ALL
     SELECT 0, 'ALL',         '%',                    'unload_trace',             '%',                                         ' ', '-- no recommendation --',  '-- no recommendation --', '-- no recommendation --', '-- no recommendation --', -1,    -1, -1, -1, '2119087', 'monitoring',     ' ' FROM DUMMY UNION ALL
@@ -596,7 +581,8 @@ PARAMETER_INFOS AS
     SELECT 0, 'ALL',         'daemon.ini',           'limits',                   'core',                                      ' ', '-- no recommendation --',  '-- no recommendation --', '-- no recommendation --', '-- no recommendation --', -1,    -1, -1, -1, '2154870', 'OS',             ' ' FROM DUMMY UNION ALL
     SELECT 0, 'ALL',         'dpserver.ini',         'framework',                'prefetchtimeout',                           ' ', '-- no recommendation --',  '-- no recommendation --', '-- no recommendation --', '-- no recommendation --', -1,    -1, -1, -1, '2363544', 'terminations',   ' ' FROM DUMMY UNION ALL
     SELECT 0, 'ALL',         'dpserver.ini',         'framework',                'useprefetch',                               ' ', '-- no recommendation --',  '-- no recommendation --', '-- no recommendation --', '-- no recommendation --', -1,    -1, -1, -1, '2363544', 'terminations',   ' ' FROM DUMMY UNION ALL
-    SELECT 0, 'ALL',         'dpserver.ini',         'framework',                 'active',                                    ' ', 'yes',                      '-- no recommendation --', '-- no recommendation --', '-- no recommendation --', 102.01,102.02, 1,  1, '2240059', 'monitoring',  ' ' FROM DUMMY UNION ALL
+    SELECT 0, 'ALL',         'dpserver.ini',         'framework',                'usestreaming',                              ' ', '-- no recommendation --',  '-- no recommendation --', '-- no recommendation --', '-- no recommendation --', -1,    -1, -1, -1, '2643641', 'memory',         ' ' FROM DUMMY UNION ALL
+    SELECT 0, 'ALL',         'dpserver.ini',         'framework',                'active',                                    ' ', 'yes',                      '-- no recommendation --', '-- no recommendation --', '-- no recommendation --', 102.01,102.02, 1,  1, '2240059', 'monitoring',  ' ' FROM DUMMY UNION ALL
     SELECT 0, 'ALL',         'esserver.ini',         'database',                 'es_log_backup_interval',                    ' ', '-- no recommendation --',  '-- no recommendation --', '-- no recommendation --', '-- no recommendation --', -1,    -1, -1, -1, '2547514', 'backup',         ' ' FROM DUMMY UNION ALL
     SELECT 0, 'ALL',         'esserver.ini',         'database',                 'es_log_backup_timeout',                     ' ', '-- no recommendation --',  '-- no recommendation --', '-- no recommendation --', '-- no recommendation --', -1,    -1, -1, -1, '2184754', 'backup',         ' ' FROM DUMMY UNION ALL
     SELECT 0, 'ALL',         'esserver.ini',         'startup',                  'load_memory_mb',                            ' ', '-- no recommendation --',  '-- no recommendation --', '-- no recommendation --', '-- no recommendation --', -1,    -1, -1, -1, '2096805', 'backup',         ' ' FROM DUMMY UNION ALL
@@ -665,6 +651,7 @@ PARAMETER_INFOS AS
     SELECT 2, 'MDCTEN',      'global.ini',           'memorymanager',            'allocationlimit',                           ' ', '-- SPECIAL --',            '-- no recommendation --', '-- no recommendation --', '-- no recommendation --', -1,    -1, -1, -1, '1999997', 'memory',         ' ' FROM DUMMY UNION ALL
     SELECT 0, 'ALL',         'global.ini',           'memorymanager',            'async_free_target',                         ' ', '-- no recommendation --',  '-- no recommendation --', '-- no recommendation --', '-- no recommendation --', -1,    -1, -1, -1, '2169283', 'memory',         ' ' FROM DUMMY UNION ALL
     SELECT 0, 'ALL',         'global.ini',           'memorymanager',            'async_free_threshold',                      ' ', '-- no recommendation --',  '-- no recommendation --', '-- no recommendation --', '-- no recommendation --', -1,    -1, -1, -1, '2169283', 'memory',         ' ' FROM DUMMY UNION ALL
+    SELECT 0, 'ALL',         'global.ini',           'memorymanager',            'disabled_parallel_tasks',                   ' ', '-- no recommendation --',  '-- no recommendation --', '-- no recommendation --', '-- no recommendation --', -1,    -1, -1, -1, '1999997', 'memory',         ' ' FROM DUMMY UNION ALL
     SELECT 0, 'ALL',         'global.ini',           'memorymanager',            'gc_unused_memory_threshold_abs',            ' ', '-- no recommendation --',  '-- no recommendation --', '-- no recommendation --', '-- no recommendation --', -1,    -1, -1, -1, '2169283', 'memory',         ' ' FROM DUMMY UNION ALL
     SELECT 0, 'ALL',         'global.ini',           'memorymanager',            'gc_unused_memory_threshold_rel',            ' ', '-- no recommendation --',  '-- no recommendation --', '-- no recommendation --', '-- no recommendation --', -1,    -1, -1, -1, '2169283', 'memory',         ' ' FROM DUMMY UNION ALL
     SELECT 2, 'ALL',         'global.ini',           'memorymanager',            'enable_sharing_allocator_for_implicit',     ' ', 'false',                    '-- no recommendation --', '-- no recommendation --', '-- no recommendation --',122.16,122.16,1, 1, '2628153', 'terminations',   ' ' FROM DUMMY UNION ALL
@@ -684,7 +671,7 @@ PARAMETER_INFOS AS
     SELECT 0, 'ALL',         'global.ini',           'memoryobjects',            'page_loadable_columns_min_size_rel',        ' ', '-- no recommendation --',  '-- no recommendation --', '-- no recommendation --', '-- no recommendation --', -1,    -1, -1, -1, '2111649', 'memory',         ' ' FROM DUMMY UNION ALL
     SELECT 0, 'ALL',         'global.ini',           'memoryobjects',            'unload_lower_bound',                        ' ', '-- no recommendation --',  '-- no recommendation --', '-- no recommendation --', '-- no recommendation --', -1,    -1, -1, -1, '1993128', 'memory',         ' ' FROM DUMMY UNION ALL
     SELECT 2, 'ALL',         'global.ini',           'memoryobjects',            'unload_upper_bound',                        ' ', '-- individual value --',   '-- no recommendation --', '-- no recommendation --', '-- no recommendation --',122.02,122.05,1, 1, '2301382', 'memory',         ' ' FROM DUMMY UNION ALL
-    SELECT 0, 'ALL',         'global.ini',           'memoryobjects',            'unused_retention_period',                   ' ', '0',                        '-- no recommendation --', '3600',                    '999999999999',            70,    -1,  1, -1, '2127458', 'memory',         ' ' FROM DUMMY UNION ALL
+    SELECT 2, 'ALL',         'global.ini',           'memoryobjects',            'unused_retention_period',                   ' ', '0',                        '-- no recommendation --', '3600',                    '999999999999',            70,    -1,  1, -1, '2127458', 'memory',         ' ' FROM DUMMY UNION ALL
     SELECT 0, 'ALL',         'global.ini',           'memoryobjects',            'unused_retention_period_check_interval',    ' ', '-- no recommendation --',  '-- no recommendation --', '-- no recommendation --', '-- no recommendation --', -1,    -1, -1, -1, '2127458', 'memory',         ' ' FROM DUMMY UNION ALL
     SELECT 0, 'ALL',         'global.ini',           'multidb',                  'singletenant',                              ' ', '-- no recommendation --',  '-- no recommendation --', '-- no recommendation --', '-- no recommendation --', -1,    -1, -1, -1, '2101244', 'MDC',            'D' FROM DUMMY UNION ALL
     SELECT 0, 'ALL',         'global.ini',           'multidb',                  'database_isolation',                        ' ', '-- no recommendation --',  '-- no recommendation --', '-- no recommendation --', '-- no recommendation --', -1,    -1, -1, -1, '2269429', 'MDC',            'D' FROM DUMMY UNION ALL
@@ -713,6 +700,7 @@ PARAMETER_INFOS AS
     SELECT 2, 'ALL',         'global.ini',           'persistence',              'non_trans_cch_block_size',                  ' ', '16777216',                 '134217728',               '-- no recommendation --', '-- no recommendation --', -1,    -1, -1, -1, '1999998', 'locks',          ' ' FROM DUMMY UNION ALL
     SELECT 3, 'ALL',         'global.ini',           'persistence',              'private_log_buffer_size_kb',                ' ', '0',                        '-- no recommendation --', '-- no recommendation --', '-- no recommendation --',100,   100,  1,  1, '2183246', 'consistency',    ' ' FROM DUMMY UNION ALL
     SELECT 2, 'ALL',         'global.ini',           'persistence',              'savepoint_interval_s',                      ' ', '10',                       '7200',                    '-- no recommendation --', '-- no recommendation --', -1,    -1, -1, -1, '1898505', 'disk I/O',       ' ' FROM DUMMY UNION ALL
+    SELECT 0, 'ALL',         'global.ini',           'persistence',              'recovery_max_load_parallelity',             ' ', '-- no recommendation --',  '-- no recommendation --', '-- no recommendation --', '-- no recommendation --', -1,    -1, -1, -1, '2668174', 'startup',        ' ' FROM DUMMY UNION ALL
     SELECT 0, 'ALL',         'global.ini',           'persistence',              'recovery_queue_count',                      ' ', '-- no recommendation --',  '-- no recommendation --', '-- no recommendation --', '-- no recommendation --', -1,    -1, -1, -1, '1964645', 'CPU',            ' ' FROM DUMMY UNION ALL
     SELECT 0, 'ALL',         'global.ini',           'persistence',              'savepoint_max_pre_critical_flush_duration', ' ', '-- no recommendation --',  '-- no recommendation --', '-- no recommendation --', '-- no recommendation --', -1,    -1,  1,  1, '2100009', 'disk I/O',       ' ' FROM DUMMY UNION ALL
     SELECT 2, 'ALL',         'global.ini',           'persistence',              'savepoint_pre_critical_flush_retry_threshold',' ','-- SPECIAL --',           '-- no recommendation --', '-- no recommendation --', '-- no recommendation --', -1, 12.04,  2,  2, '2538561', 'disk I/O',       ' ' FROM DUMMY UNION ALL
@@ -729,8 +717,9 @@ PARAMETER_INFOS AS
     SELECT 3, 'ALL',         'global.ini',           'resource_tracking',        'load_monitor_granularity',                  ' ', '1000',                     '60000',                   '-- no recommendation --', '-- no recommendation --', -1,    -1, -1, -1, '2222110', 'monitoring',     ' ' FROM DUMMY UNION ALL
     SELECT 0, 'ALL',         'global.ini',           'resource_tracking',        'load_monitor_max_samples',                  ' ', '-- no recommendation --',  '-- no recommendation --', '-- no recommendation --', '-- no recommendation --', -1,    -1, -1, -1, '2222110', 'monitoring',     ' ' FROM DUMMY UNION ALL
     SELECT 1, 'ALL',         'global.ini',           'resource_tracking',        'memory_tracking',                           ' ', 'on',                       '-- no recommendation --', '-- no recommendation --', '-- no recommendation --', 80,    -1,  1, -1, '1999997', 'monitoring',     ' ' FROM DUMMY UNION ALL
-    SELECT 0, 'ALL',         'global.ini',           'resource_tracking',        'service_thread_sampling_monitor_enabled',   ' ', '-- no recommendation --',  '-- no recommendation --', '-- no recommendation --', '-- no recommendation --', -1,    -1, -1, -1, '2114710', 'monitoring',     ' ' FROM DUMMY UNION ALL
-    SELECT 0, 'ALL',         'global.ini',           'resource_tracking','service_thread_sampling_monitor_max_sample_lifetime',' ','-- no recommendation --',  '-- no recommendation --', '-- no recommendation --', '-- no recommendation --', -1,    -1, -1, -1, '2114710', 'monitoring',     ' ' FROM DUMMY UNION ALL
+    SELECT 2, 'ALL',         'global.ini',           'resource_tracking',        'service_thread_sampling_monitor_enabled',   ' ', 'true',                     '-- no recommendation --', '-- no recommendation --', '-- no recommendation --',122.14, -1,  1,  1, '2114710', 'monitoring',     ' ' FROM DUMMY UNION ALL
+    SELECT 2, 'ALL',         'global.ini',           'resource_tracking',        'service_thread_sampling_monitor_enabled',   ' ', 'true',                     '-- no recommendation --', '-- no recommendation --', '-- no recommendation --',122.14, -1,  1,  1, '2114710', 'monitoring',     ' ' FROM DUMMY UNION ALL
+    SELECT 0, 'ALL',         'global.ini',           'resource_tracking','service_thread_sampling_monitor_max_sample_lifetime',' ','-- no recommendation --',  '-- no recommendation --', '-- no recommendation --', '-- no recommendation --', 10,    -1,  2,  2, '2114710', 'monitoring',     ' ' FROM DUMMY UNION ALL
     SELECT 0, 'ALL',         'global.ini',           'resource_tracking','service_thread_sampling_monitor_max_samples',       ' ', '-- no recommendation --',  '-- no recommendation --', '-- no recommendation --', '-- no recommendation --', -1,    -1, -1, -1, '2114710', 'monitoring',     ' ' FROM DUMMY UNION ALL
     SELECT 0, 'ALL',         'global.ini',           'resource_tracking','service_thread_sampling_monitor_sample_interval',   ' ', '-- no recommendation --',  '-- no recommendation --', '-- no recommendation --', '-- no recommendation --', -1,    -1, -1, -1, '2114710', 'monitoring',     ' ' FROM DUMMY UNION ALL
     SELECT 2, 'ALL',         'global.ini',           'resource_tracking','service_thread_sampling_monitor_thread_detail_enabled', ' ', 'true',                 '-- no recommendation --', '-- no recommendation --', '-- no recommendation --', 70,    -1,  1, -1, '2114710', 'monitoring',     ' ' FROM DUMMY UNION ALL
@@ -745,7 +734,10 @@ PARAMETER_INFOS AS
     SELECT 0, 'ALL',         'global.ini',           'storage',                  'ha_provider%',                              ' ', '-- no recommendation --',  '-- no recommendation --', '-- no recommendation --', '-- no recommendation --', -1,    -1, -1, -1,        '', ' ',              'A' FROM DUMMY UNION ALL
     SELECT 0, 'ALL',         'global.ini',           'storage',                  'partition_%',                               ' ', '-- no recommendation --',  '-- no recommendation --', '-- no recommendation --', '-- no recommendation --', -1,    -1, -1, -1,        '', ' ',              'A' FROM DUMMY UNION ALL
     SELECT 0, 'ALL',         'global.ini',           'system_information',       'usage',                                     ' ', '-- no recommendation --',  '-- no recommendation --', '-- no recommendation --', '-- no recommendation --', -1,    -1, -1, -1,        '', ' ',              'D' FROM DUMMY UNION ALL
+    SELECT 0, 'ALL',         'global.ini', 'system_landscape_hostname_virtualization', 'sldsystemhome',                       ' ', '-- no recommendation --',  '-- no recommendation --', '-- no recommendation --', '-- no recommendation --', -1,    -1, -1, -1,        '', ' ',              'A' FROM DUMMY UNION ALL
+    SELECT 0, 'ALL',         'global.ini', 'system_landscape_hostname_virtualization', 'sldvirtdbhome',                       ' ', '-- no recommendation --',  '-- no recommendation --', '-- no recommendation --', '-- no recommendation --', -1,    -1, -1, -1,        '', ' ',              'A' FROM DUMMY UNION ALL
     SELECT 0, 'SYSREP',      'global.ini',           'system_replication',       'actual_mode',                               ' ', '-- no recommendation --',  '-- no recommendation --', '-- no recommendation --', '-- no recommendation --', -1,    -1, -1, -1, '1999880', 'system rep.',    'A' FROM DUMMY UNION ALL
+    SELECT 0, 'SYSREP',      'global.ini',           'system_replication',       'check_active_persistence_for_delta_sync',   ' ', '-- no recommendation --',  '-- no recommendation --', '-- no recommendation --', '-- no recommendation --', -1,    -1, -1, -1, '2434562', 'system rep.',    ' ' FROM DUMMY UNION ALL
     SELECT 0, 'SYSREP',      'global.ini',           'system_replication',       'check_secondary_active_status',             ' ', '-- no recommendation --',  '-- no recommendation --', '-- no recommendation --', '-- no recommendation --', -1,    -1, -1, -1, '2000002', 'system rep.',    ' ' FROM DUMMY UNION ALL
     SELECT 0, 'SYSREP',      'global.ini',           'system_replication',       'datashipping_logsize_threshold',            ' ', '-- no recommendation --',  '-- no recommendation --', '-- no recommendation --', '-- no recommendation --', -1,    -1, -1, -1, '2036111', 'system rep.',    ' ' FROM DUMMY UNION ALL
     SELECT 0, 'SYSREP',      'global.ini',           'system_replication',       'datashipping_min_time_interval',            ' ', '-- no recommendation --',  '-- no recommendation --', '-- no recommendation --', '-- no recommendation --', -1,    -1, -1, -1, '2036111', 'system rep.',    ' ' FROM DUMMY UNION ALL
@@ -756,6 +748,7 @@ PARAMETER_INFOS AS
     SELECT 0, 'SYSREP',      'global.ini',           'system_replication',       'enable_log_compression',                    ' ', '-- no recommendation --',  '-- no recommendation --', '-- no recommendation --', '-- no recommendation --', -1,    -1, -1, -1, '1999880', 'network',        ' ' FROM DUMMY UNION ALL
     SELECT 0, 'SYSREP',      'global.ini',           'system_replication',       'enable_log_retention',                      ' ', '-- no recommendation --',  '-- no recommendation --', '-- no recommendation --', '-- no recommendation --', -1,    -1, -1, -1, '1999880', 'network',        ' ' FROM DUMMY UNION ALL
     SELECT 0, 'SYSREP',      'global.ini',           'system_replication',       'enable_send_ack_in_async_mode',             ' ', '-- no recommendation --',  '-- no recommendation --', '-- no recommendation --', '-- no recommendation --', -1,    -1, -1, -1, '2312539', 'termination',    ' ' FROM DUMMY UNION ALL
+    SELECT 0, 'SYSREP',      'global.ini',           'system_replication',       'enable_sync_via_log',                       ' ', '-- no recommendation --',  '-- no recommendation --', '-- no recommendation --', '-- no recommendation --', -1,    -1, -1, -1, '2434562', 'system rep.',    ' ' FROM DUMMY UNION ALL
     SELECT 0, 'SYSREP',      'global.ini',           'system_replication',       'enable_ssl',                                ' ', '-- no recommendation --',  '-- no recommendation --', '-- no recommendation --', '-- no recommendation --', -1,    -1, -1, -1, '2230230', 'security',       ' ' FROM DUMMY UNION ALL
     SELECT 0, 'SYSREP',      'global.ini',           'system_replication',       'ensure_backup_history',                     ' ', '-- no recommendation --',  '-- no recommendation --', '-- no recommendation --', '-- no recommendation --', -1,    -1, -1, -1, '2135107', 'system rep.',    ' ' FROM DUMMY UNION ALL
     SELECT 0, 'SYSREP',      'global.ini',           'system_replication',       'keep_old_style_alert',                      ' ', '-- no recommendation --',  '-- no recommendation --', '-- no recommendation --', '-- no recommendation --', -1,    -1, -1, -1, '2036111', 'network',        ' ' FROM DUMMY UNION ALL
@@ -952,6 +945,7 @@ PARAMETER_INFOS AS
     SELECT 0, 'ALL',         'indexserver.ini',      'mds',                      'cache_session_ttl',                         ' ', '-- no recommendation --',  '-- no recommendation --', '-- no recommendation --', '-- no recommendation --', -1,    -1, -1, -1, '2559231', 'performance',    ' ' FROM DUMMY UNION ALL
     SELECT 0, 'ALL',         'indexserver.ini',      'mds',                      'cube_parallel_processing_11_job_size',      ' ', '-- no recommendation --',  '-- no recommendation --', '-- no recommendation --', '-- no recommendation --', -1,    -1, -1, -1, '2321714', 'crash',          ' ' FROM DUMMY UNION ALL
     SELECT 0, 'ALL',         'indexserver.ini',      'mds',                      'flush_cache',                               ' ', '-- no recommendation --',  '-- no recommendation --', '-- no recommendation --', '-- no recommendation --', -1,    -1, -1, -1, '2465129', 'performance',    ' ' FROM DUMMY UNION ALL
+    SELECT 0, 'ALL',         'indexserver.ini',      'mds',                      'mds_distributed_cache_timeout_ms',          ' ', '-- no recommendation --',  '-- no recommendation --', '-- no recommendation --', '-- no recommendation --', -1,    -1, -1, -1, '2598662', 'performance',    ' ' FROM DUMMY UNION ALL
     SELECT 0, 'ALL',         'indexserver.ini',      'mdx',                      'treat_null_as_zero',                        ' ', '-- no recommendation --',  '-- no recommendation --', '-- no recommendation --', '-- no recommendation --', -1,    -1, -1, -1, '2262591', 'wrong results',  ' ' FROM DUMMY UNION ALL
     SELECT 3, 'ALL',         'indexserver.ini',      'mergedog',                 'active',                                    ' ', 'yes',                      '-- no recommendation --', '-- no recommendation --', '-- no recommendation --', -1,    -1, -1, -1, '2057046', 'memory',         ' ' FROM DUMMY UNION ALL
     SELECT 3, 'ALL',         'indexserver.ini',      'mergedog',                 'auto_merge_decision_func',                  ' ', '(DRC*TMD>3600*(MRC+0.0001) or (THM>=256000 and (((DMS>100 or DCC>100 or DLS>1000) and DRC>MRC/100) or (DMR>0.2*MRC and DMR>0.001))) or (THM<256000 and (DMS>50 or DCC>8 or DLS>100))) and (DUC<0.1 or 0.05*DRC>=DUC)', '-- no recommendation --', '-- no recommendation --', '-- no recommendation --', -1, 89.99,  1,  1, '2057046', 'memory', ' ' FROM DUMMY UNION ALL
@@ -1017,6 +1011,7 @@ PARAMETER_INFOS AS
     SELECT 0, 'ALL',         'indexserver.ini',      'persistence',              'disposition_lob_read_small',                ' ', '-- no recommendation --',  '-- no recommendation --', '-- no recommendation --', '-- no recommendation --', -1,    -1, -1, -1, '1999997', 'performance',    ' ' FROM DUMMY UNION ALL
     SELECT 0, 'ALL',         'indexserver.ini',      'persistence',              'disposition_lob_write',                     ' ', '-- no recommendation --',  '-- no recommendation --', '-- no recommendation --', '-- no recommendation --', -1,    -1, -1, -1, '1999997', 'performance',    ' ' FROM DUMMY UNION ALL
     SELECT 0, 'ALL',         'indexserver.ini',      'persistence',              'disposition_lob_write_small',               ' ', '-- no recommendation --',  '-- no recommendation --', '-- no recommendation --', '-- no recommendation --', -1,    -1, -1, -1, '1999997', 'performance',    ' ' FROM DUMMY UNION ALL
+    SELECT 0, 'ALL',         'indexserver.ini',      'persistence',           'force_check_for_delta_log_entries_at_startup', ' ', '-- no recommendation --',  '-- no recommendation --', '-- no recommendation --', '-- no recommendation --', -1,    -1, -1, -1, '2666367', 'performance',    ' ' FROM DUMMY UNION ALL
     SELECT 0, 'ALL',         'indexserver.ini',      'persistence',              'lob_page_trigger_cleanup_threshold',        ' ', '-- no recommendation --',  '-- no recommendation --', '-- no recommendation --', '-- no recommendation --', -1,    -1, -1, -1, '2220627', 'memory',         ' ' FROM DUMMY UNION ALL
     SELECT 0, 'ALL',         'indexserver.ini',      'persistence',              'log_preformat_segment_count',               ' ', '-- no recommendation --',  '-- no recommendation --', '-- no recommendation --', '-- no recommendation --', -1,    -1, -1, -1, '1999998', 'performance',    ' ' FROM DUMMY UNION ALL
     SELECT 0, 'ALL',         'indexserver.ini',      'persistence',              'runtimedump_for_blocked_savepoint_timeout', ' ', '-- no recommendation --',  '-- no recommendation --', '-- no recommendation --', '-- no recommendation --', -1,    -1, -1, -1, '2100009', 'trace',          ' ' FROM DUMMY UNION ALL
@@ -1041,6 +1036,7 @@ PARAMETER_INFOS AS
     SELECT 0, 'ALL',         'indexserver.ini',      'result_cache',             'enable',                                    ' ', '-- no recommendation --',  '-- no recommendation --', '-- no recommendation --', '-- no recommendation --', -1,    -1, -1, -1, '2336344', 'memory',         ' ' FROM DUMMY UNION ALL
     SELECT 0, 'ALL',         'indexserver.ini',      'result_cache',             'total_size',                                ' ', '-- no recommendation --',  '-- no recommendation --', '-- no recommendation --', '-- no recommendation --', -1,    -1, -1, -1, '2336344', 'memory',         ' ' FROM DUMMY UNION ALL
     SELECT 0, 'ALL',         'indexserver.ini',      'row_engine',               'bulk_delete_threshold',                     ' ', '-- no recommendation --',  '-- no recommendation --', '-- no recommendation --', '-- no recommendation --', -1,    -1, -1, -1, '2000003', 'DML',            ' ' FROM DUMMY UNION ALL
+    SELECT 0, 'ALL',         'indexserver.ini',      'row_engine',               'bulk_deletion_enabled',                     ' ', '-- no recommendation --',  '-- no recommendation --', '-- no recommendation --', '-- no recommendation --', -1,    -1, -1, -1, '2647906', 'crash',          ' ' FROM DUMMY UNION ALL
     SELECT 0, 'ALL',         'indexserver.ini',      'row_engine',               'collect_leaked_pages_at_startup',           ' ', '-- no recommendation --',  '-- no recommendation --', '-- no recommendation --', '-- no recommendation --', -1,    -1, -1, -1, '2101640', 'startup',        ' ' FROM DUMMY UNION ALL
     SELECT 0, 'ALL',         'indexserver.ini',      'row_engine',               'consistency_check_at_startup',              ' ', '-- no recommendation --',  '-- no recommendation --', '-- no recommendation --', '-- no recommendation --', -1,    -1, -1, -1, '2116157', 'consistency',    ' ' FROM DUMMY UNION ALL
     SELECT 0, 'ALL',         'indexserver.ini',      'row_engine',               'dynamic_parallel_insert_max_workers',       ' ', '-- no recommendation --',  '-- no recommendation --', '-- no recommendation --', '-- no recommendation --', -1,    -1, -1, -1, '1999997', 'memory',         ' ' FROM DUMMY UNION ALL
@@ -1073,7 +1069,8 @@ PARAMETER_INFOS AS
     SELECT 3, 'ERP',         'indexserver.ini',      'search',                   'qo_top_1_optimization',                     ' ', 'false',                    '-- no recommendation --', '-- no recommendation --', '-- no recommendation --', 90,129.99,  1,  1, '2238679', 'performance',    ' ' FROM DUMMY UNION ALL
     SELECT 3, 'SCM',         'indexserver.ini',      'search',                   'qo_top_1_optimization',                     ' ', 'false',                    '-- no recommendation --', '-- no recommendation --', '-- no recommendation --', 90,129.99,  1,  1, '2238679', 'performance',    ' ' FROM DUMMY UNION ALL
     SELECT 0, 'ALL',         'indexserver.ini',      'series',                   'abap_itab_parameter',                       ' ', '-- no recommendation --',  '-- no recommendation --', '-- no recommendation --', '-- no recommendation --', -1,    -1, -1, -1, '2399993', 'FDA',            ' ' FROM DUMMY UNION ALL
-    SELECT 1, 'ALL',         'indexserver.ini',      'series',                   'series_column_lrle_compression_enabled',    ' ', '-- no recommendation --',  '-- no recommendation --', '-- no recommendation --', '-- no recommendation --', 90,    -1,  1, -1, '2549632', 'terminations',   ' ' FROM DUMMY UNION ALL
+    SELECT 1, 'ALL',         'indexserver.ini',      'series',                   'series_column_lrle_compression_enabled',    ' ', 'false',                    '-- no recommendation --', '-- no recommendation --', '-- no recommendation --', 90,122.13,  1,  1, '2549632', 'terminations',   ' ' FROM DUMMY UNION ALL
+    SELECT 1, 'ALL',         'indexserver.ini',      'series',                   'series_column_lrle_compression_enabled',    ' ', 'false',                    '-- no recommendation --', '-- no recommendation --', '-- no recommendation --', -1, 12.02,  2,  2, '2549632', 'terminations',   ' ' FROM DUMMY UNION ALL
     SELECT 0, 'ALL',         'indexserver.ini',      'session',                  'connection_history_lifetime',               ' ', '-- no recommendation --',  '-- no recommendation --', '-- no recommendation --', '-- no recommendation --', -1,    -1, -1, -1, '2088971', 'limitation',     ' ' FROM DUMMY UNION ALL
     SELECT 0, 'ALL',         'indexserver.ini',      'session',                  'connection_history_maximum_size',           ' ', '-- no recommendation --',  '-- no recommendation --', '-- no recommendation --', '-- no recommendation --', -1,    -1, -1, -1, '2088971', 'limitation',     ' ' FROM DUMMY UNION ALL
     SELECT 0, 'ALL',         'indexserver.ini',      'session',                  'data_format_version',                       ' ', '-- no recommendation --',  '-- no recommendation --', '-- no recommendation --', '-- no recommendation --', -1,    -1, -1, -1, '2638379', 'terminations',   ' ' FROM DUMMY UNION ALL
@@ -1109,9 +1106,10 @@ PARAMETER_INFOS AS
     SELECT 0, 'ALL',         'indexserver.ini',      'sql',                      'display_sql_statement_parameters_in_dump',  ' ', '-- no recommendation --',  '-- no recommendation --', '-- no recommendation --', '-- no recommendation --', -1,    -1, -1, -1, '2288661', 'monitoring',     ' ' FROM DUMMY UNION ALL
     SELECT 0, 'ALL',         'indexserver.ini',      'sql',                      'enable_old_update_from_behavior',           ' ', '-- no recommendation --',  '-- no recommendation --', '-- no recommendation --', '-- no recommendation --', -1,    -1, -1, -1, '2241598', 'terminations',   ' ' FROM DUMMY UNION ALL
     SELECT 0, 'ALL',         'indexserver.ini',      'sql',                      'esx_level',                                 ' ', '-- no recommendation --',  '-- no recommendation --', '-- no recommendation --', '-- no recommendation --', -1,    -1, -1, -1, '2599949', 'crash',          ' ' FROM DUMMY UNION ALL
-    SELECT 0, 'ALL',         'indexserver.ini',      'sql',                      'hex_enabled',                               ' ', '-- no recommendation --',  '-- no recommendation --', '-- no recommendation --', '-- no recommendation --', -1,    -1, -1, -1, '2570371', 'performance',    ' ' FROM DUMMY UNION ALL
+    SELECT 2, 'ALL',         'indexserver.ini',      'sql',                      'hex_enabled',                               ' ', 'false',                    '-- no recommendation --', '-- no recommendation --', '-- no recommendation --', 20, 24.03,  2,  2, '2663190', 'crash',          ' ' FROM DUMMY UNION ALL
+    SELECT 2, 'ALL',         'indexserver.ini',      'sql',                      'hex_enabled',                               ' ', 'false',                    '-- no recommendation --', '-- no recommendation --', '-- no recommendation --', 30,    31,  2,  2, '2663190', 'crash',          ' ' FROM DUMMY UNION ALL
     SELECT 0, 'ALL',         'indexserver.ini',      'sql',                      'inverse_function_optimization',             ' ', '-- no recommendation --',  '-- no recommendation --', '-- no recommendation --', '-- no recommendation --', -1,    -1, -1, -1, '2392856', 'crash',          ' ' FROM DUMMY UNION ALL
-    SELECT 2, 'ALL',         'indexserver.ini',      'sql',                      'multistore_feature_toggle', ' ', 'multistore_operator,column,update,false',  '-- no recommendation --', '-- no recommendation --', '-- no recommendation --', 30,    31,  2,  2, '2600030', 'performance',    ' ' FROM DUMMY UNION ALL
+    SELECT 2, 'ALL',         'indexserver.ini',      'sql',                      'multistore_feature_toggle', ' ', '(multistore_operator,column,update,false)','-- no recommendation --', '-- no recommendation --', '-- no recommendation --', 30,    31,  2,  2, '2600030', 'performance',    ' ' FROM DUMMY UNION ALL
     SELECT 0, 'ALL',         'indexserver.ini',      'sql',                      'native_mixed_join_enabled',                 ' ', '-- no recommendation --',  '-- no recommendation --', '-- no recommendation --', '-- no recommendation --', -1,    -1, -1, -1, '2624305', 'memory',         ' ' FROM DUMMY UNION ALL
     SELECT 0, 'ALL',         'indexserver.ini',      'sql',                      'nested_trigger_check_in_ddl_time',          ' ', '-- no recommendation --',  '-- no recommendation --', '-- no recommendation --', '-- no recommendation --', -1,    -1, -1, -1, '2170927', 'terminations',   ' ' FROM DUMMY UNION ALL
     SELECT 0, 'ALL',         'indexserver.ini',      'sql',                      'nested_trigger_limit',                      ' ', '-- no recommendation --',  '-- no recommendation --', '-- no recommendation --', '-- no recommendation --', -1,    -1, -1, -1, '2130431', 'terminations',   ' ' FROM DUMMY UNION ALL
@@ -1138,6 +1136,8 @@ PARAMETER_INFOS AS
     SELECT 0, 'ALL',         'indexserver.ini',      'sql',                      'table_statistics_enabled',                  ' ', '-- no recommendation --',  '-- no recommendation --', '-- no recommendation --', '-- no recommendation --', -1,    -1, -1, -1, '2343579', 'crash',          ' ' FROM DUMMY UNION ALL
     SELECT 0, 'ALL',         'indexserver.ini',      'sql',                      'table_statistics_modify_enabled',           ' ', '-- no recommendation --',  '-- no recommendation --', '-- no recommendation --', '-- no recommendation --', -1,    -1, -1, -1, '2088971', 'monitoring',     ' ' FROM DUMMY UNION ALL
     SELECT 0, 'ALL',         'indexserver.ini',      'sql',                      'table_statistics_select_enabled',           ' ', '-- no recommendation --',  '-- no recommendation --', '-- no recommendation --', '-- no recommendation --', -1,    -1, -1, -1, '2088971', 'monitoring',     ' ' FROM DUMMY UNION ALL
+    SELECT 3, 'ALL',         'indexserver.ini',      'sql',                      'use_cfl_for_esx_expression',                ' ', '-- no recommendation --',  '-- no recommendation --', '-- no recommendation --', '-- no recommendation --', 20, 24.03,  2,  2, '2660294', 'crash',          ' ' FROM DUMMY UNION ALL
+    SELECT 3, 'ALL',         'indexserver.ini',      'sql',                      'use_cfl_for_esx_expression',                ' ', '-- no recommendation --',  '-- no recommendation --', '-- no recommendation --', '-- no recommendation --', 30,    31,  2,  2, '2660294', 'crash',          ' ' FROM DUMMY UNION ALL
     SELECT 0, 'ALL',         'indexserver.ini',      'sql',                      'use_interuser_plan_sharing',                ' ', '-- no recommendation --',  '-- no recommendation --', '-- no recommendation --', '-- no recommendation --', -1,    -1, -1, -1, '2124112', 'performance',    ' ' FROM DUMMY UNION ALL
     SELECT 0, 'ALL',         'indexserver.ini',      'sql',                      'use_new_placement_scheme_for_replicas',     ' ', '-- no recommendation --',  '-- no recommendation --', '-- no recommendation --', '-- no recommendation --', -1,    -1, -1, -1, '2381080', 'performance',    ' ' FROM DUMMY UNION ALL
     SELECT 0, 'ALL',         'indexserver.ini',      'sql',                      'use_old_locate_function',                   ' ', '-- no recommendation --',  '-- no recommendation --', '-- no recommendation --', '-- no recommendation --', -1,    -1, -1, -1, '2304091', 'consistency',    ' ' FROM DUMMY UNION ALL
@@ -1156,7 +1156,6 @@ PARAMETER_INFOS AS
     SELECT 0, 'ALL',         'indexserver.ini', 'sqlscript', 'skip_revalidation_and_accept_invalid_procedures_after_startup', ' ', '-- no recommendation --',  '-- no recommendation --', '-- no recommendation --', '-- no recommendation --', -1,    -1, -1, -1, '2323112', 'terminations',   ' ' FROM DUMMY UNION ALL
     SELECT 0, 'MULTI',       'indexserver.ini',      'sqlscript',                'translate_ce_datasource_to_select_stmt',    ' ', '-- no recommendation --',  '-- no recommendation --', '-- no recommendation --', '-- no recommendation --', -1,    -1, -1, -1, '2174236', 'terminations',   ' ' FROM DUMMY UNION ALL
     SELECT 0, 'MULTI',       'indexserver.ini',      'sqlscript',                'typecheck_procedure_input_param',           ' ', '-- no recommendation --',  '-- no recommendation --', '-- no recommendation --', '-- no recommendation --', -1,    -1, -1, -1, '2036111', 'terminations',   ' ' FROM DUMMY UNION ALL
-    SELECT 3, 'MDCSYS',      'indexserver_strict.ini', 'statisticsserver',       'active',                                    ' ', 'true',                     '-- no recommendation --', '-- no recommendation --', '-- no recommendation --', -1,    -1, -1, -1, '1917938', 'monitoring',     ' ' FROM DUMMY UNION ALL
     SELECT 0, 'ALL',         'indexserver.ini',      'statisticsserver',         'initial_profile',                           ' ', '-- no recommendation --',  '-- no recommendation --', '-- no recommendation --', '-- no recommendation --', -1,    -1, -1, -1, '2127247', 'stat. server',   'D' FROM DUMMY UNION ALL
     SELECT 0, 'ALL',         'indexserver.ini',      'statisticsserver',         'threadpool',                                ' ', '-- no recommendation --',  '-- no recommendation --', '-- no recommendation --', '-- no recommendation --', -1,    -1, -1, -1, '2222250', 'CPU',            ' ' FROM DUMMY UNION ALL
     SELECT 0, 'MULTI',       'indexserver.ini',      'table_redist',             'all_moves_physical',                        ' ', '-- no recommendation --',  '-- no recommendation --', '-- no recommendation --', '-- no recommendation --', -1,    -1, -1, -1, '2081591', 'redistribution', ' ' FROM DUMMY UNION ALL
@@ -1181,6 +1180,8 @@ PARAMETER_INFOS AS
     SELECT 3, 'MULTI',       'indexserver.ini',      'table_redist',             'enable_repartitioning_with_gcd',            ' ', 'false',                    '-- no recommendation --', '-- no recommendation --', '-- no recommendation --',100,109.99,  1,  1, '1958216', 'redistribution', ' ' FROM DUMMY UNION ALL
     SELECT 0, 'MULTI',       'indexserver.ini',      'table_redist',             'force_partnum_to_splitrule',                ' ', '-- no recommendation --',  '-- no recommendation --', '-- no recommendation --', '-- no recommendation --', -1,    -1, -1, -1, '2081591', 'redistribution', ' ' FROM DUMMY UNION ALL
     SELECT 0, 'MULTI',       'indexserver.ini',      'table_redist',             'num_exec_threads',                          ' ', '-- no recommendation --',  '-- no recommendation --', '-- no recommendation --', '-- no recommendation --', -1,    -1, -1, -1, '2081591', 'redistribution', ' ' FROM DUMMY UNION ALL
+    SELECT 0, 'MULTI',       'indexserver.ini',      'table_replication',        'enable_create_runtimedump',                 ' ', '-- no recommendation --',  '-- no recommendation --', '-- no recommendation --', '-- no recommendation --', -1,    -1, -1, -1, '2400007', 'trace',          ' ' FROM DUMMY UNION ALL
+    SELECT 0, 'MULTI',       'indexserver.ini',      'table_replication',        'update_log_table_status',                   ' ', '-- no recommendation --',  '-- no recommendation --', '-- no recommendation --', '-- no recommendation --', -1,    -1, -1, -1, '2673956', 'monitoring',     ' ' FROM DUMMY UNION ALL
     SELECT 4, 'ALL',         'indexserver.ini',      'trace',                    'tablereload',                               ' ', 'info',                     '-- no recommendation --', '-- no recommendation --', '-- no recommendation --', -1,    -1, -1, -1, '2222217', 'startup',        ' ' FROM DUMMY UNION ALL
     SELECT 3, 'ALL',         'indexserver.ini',      'transaction',              'aggressive_gc_interval',                    ' ', '300',                      '-- no recommendation --', '-- no recommendation --', '-- no recommendation --', -1,    -1,  1,  1, '2169283', 'performance',    ' ' FROM DUMMY UNION ALL
     SELECT 0, 'ALL',         'indexserver.ini',      'transaction',              'check_global_trans_consistency',            ' ', '-- no recommendation --',  '-- no recommendation --', '-- no recommendation --', '-- no recommendation --', -1,    -1, -1, -1, '2129651', 'consistency',    ' ' FROM DUMMY UNION ALL
@@ -1197,6 +1198,7 @@ PARAMETER_INFOS AS
     SELECT 0, 'ALL',         'indexserver.ini',      'transaction',              'num_of_async_rep_queue',                    ' ', '-- no recommendation --',  '-- no recommendation --', '-- no recommendation --', '-- no recommendation --', -1,    -1, -1, -1, '2340450', 'CPU',            ' ' FROM DUMMY UNION ALL
     SELECT 0, 'ALL',         'indexserver.ini',      'transaction',              'number_versions_alert_threshold',           ' ', '-- no recommendation --',  '-- no recommendation --', '-- no recommendation --', '-- no recommendation --', -1,    -1, -1, -1, '2169283', 'garbage coll.',  ' ' FROM DUMMY UNION ALL
     SELECT 0, 'ALL',         'indexserver.ini',      'transaction',              'parallel_batch_insert_threshold',           ' ', '-- no recommendation --',  '-- no recommendation --', '-- no recommendation --', '-- no recommendation --', -1,    -1, -1, -1, '2000003', 'DML',            ' ' FROM DUMMY UNION ALL
+    SELECT 0, 'ALL',         'indexserver.ini',      'transaction',              'replication_log_check_timeout',             ' ', '-- no recommendation --',  '-- no recommendation --', '-- no recommendation --', '-- no recommendation --', -1,    -1, -1, -1, '2673956', 'table rep.',     ' ' FROM DUMMY UNION ALL
     SELECT 0, 'HIST',        'indexserver.ini',      'transaction',              'transaction_history_record_limit',          ' ', '-- individual value --',   '-- no recommendation --', '-- no recommendation --', '-- no recommendation --', -1,    -1, -1, -1, '1910610', 'consistency',    ' ' FROM DUMMY UNION ALL
     SELECT 0, 'HIST',        'indexserver.ini',      'transaction',              'transaction_history_size_limit',            ' ', '-- individual value --',   '-- no recommendation --', '-- no recommendation --', '-- no recommendation --', -1,    -1, -1, -1, '1910610', 'consistency',    ' ' FROM DUMMY UNION ALL
     SELECT 0, 'ALL',         'indexserver.ini',      'transaction',              'transaction_number_limit',                  ' ', '-- no recommendation --',  '-- no recommendation --', '-- no recommendation --', '-- no recommendation --', -1,    -1, -1, -1, '2154870', 'terminations',   ' ' FROM DUMMY UNION ALL
@@ -1220,6 +1222,7 @@ PARAMETER_INFOS AS
     SELECT 2, 'ALL',         'nameserver.ini',       'statisticsserver',         'active',                                    ' ', 'true',                     '-- no recommendation --', '-- no recommendation --', '-- no recommendation --', 74,    -1,  1,  1, '1917938', 'monitoring',     ' ' FROM DUMMY UNION ALL
     SELECT 0, 'MDCSYS',      'nameserver.ini',       'threads',                  'poolsize',                                  ' ', '-- no recommendation --',  '-- no recommendation --', '-- no recommendation --', '-- no recommendation --', -1,    -1, -1, -1, '2186744', 'multitenant',    'D' FROM DUMMY UNION ALL
     SELECT 0, 'ALL',         'nameserver.ini',       'topology',                 'size',                                      ' ', '-- no recommendation --',  '-- no recommendation --', '-- no recommendation --', '-- no recommendation --', -1,    -1, -1, -1, '1977101', 'memory',         ' ' FROM DUMMY UNION ALL
+    SELECT 0, 'ALL',         'scriptserver.ini',     'adapter_operation_cache',  'enable_adapter_operation_cache',            ' ', '-- no recommendation --',  '-- no recommendation --', '-- no recommendation --', '-- no recommendation --', -1,    -1, -1, -1, '2347571', 'terminations',   ' ' FROM DUMMY UNION ALL
     SELECT 2, 'ALL',         'scriptserver.ini',     'communication',            'maxchannels',                               ' ', '4000',                     '-- no recommendation --', '-- no recommendation --', '-- no recommendation --',100,122.14,  1,  1, '2382421', 'terminations',   ' ' FROM DUMMY UNION ALL
     SELECT 2, 'ALL',         'scriptserver.ini',     'communication',            'maxchannels',                               ' ', '4000',                     '-- no recommendation --', '-- no recommendation --', '-- no recommendation --', -1,     9,  2,  2, '2382421', 'terminations',   ' ' FROM DUMMY UNION ALL
     SELECT 2, 'ALL',         'scriptserver.ini',     'communication',            'maxendpoints',                              ' ', '4000',                     '-- no recommendation --', '-- no recommendation --', '-- no recommendation --',100,122.14,  1,  1, '2382421', 'terminations',   ' ' FROM DUMMY UNION ALL
@@ -1260,7 +1263,7 @@ PARAMETER_INFOS AS
 SELECT 4,'SYSREP','global.ini','system_replication_communication','enable_ssl',' ','on','-- no recommendation --','-- no recommendation --','-- no recommendation --',30,-1,2,2,'2618451-2','SSL;encryption;MDC;system_replication',' ' from DUMMY UNION ALL
 SELECT 2,'ALL','indexserver.ini','session','fda_enable',' ','off','-- no recommendation --','-- no recommendation --','-- no recommendation --',30,-1,2,2,'2627679','FDA;workprocess;signal_11',' ' from DUMMY UNION ALL
 SELECT 2,'ALL','indexserver.ini','performance_analyzer','planviz_enable',' ','false','-- no recommendation --','-- no recommendation --','-- no recommendation --',30,-1,2,2,'2637828','memory_leak;performance;planviz;trace',' ' from DUMMY UNION ALL
-SELECT 1,'ALL','indexserver.ini','joins','virtual_vids_bitvector_threshold',' ','1000000000','-- no recommendation --','-- no recommendation --','-- no recommendation --',30,-1,2,2,'2642704','indexserver_crash;partitioning;join_engine',' ' from DUMMY UNION ALL
+SELECT 1,'ALL','indexserver.ini','joins','virtual_vids_bitvector_threshold',' ','1000000000','-- no recommendation --','-- no recommendation --','-- no recommendation --',30,30.999,2,2,'2642704','indexserver_crash;partitioning;join_engine',' ' from DUMMY UNION ALL
 SELECT 1,'ALL','indexserver.ini','delta','use_massupdates',' ','false','-- no recommendation --','-- no recommendation --','-- no recommendation --',30,30.999,2,2,'2632716','indexserver_crash;attribute_engine;inverted_index;',' ' from DUMMY UNION ALL
 SELECT 1,'ALL','indexserver.ini','sql','esx_level',' ','0','-- no recommendation --','-- no recommendation --','-- no recommendation --',30,-1,2,2,'2639068','ESX;indexserver_crash;signal_6;signal_11',' ' from DUMMY UNION ALL
 SELECT 2,'ALL','global.ini','performance_analyzer','plan_trace_enable',' ','false','-- no recommendation --','-- no recommendation --','-- no recommendation --',30,30.999,2,2,'2643064','indexserver_crash;trace;planviz;signal_11',' ' from DUMMY UNION ALL
@@ -1276,10 +1279,57 @@ SELECT 3,'ALL','global.ini','backup','parallel_data_backup_backint_channels',' '
 SELECT 3,'SYSREP','global.ini','system_replication','check_secondary_active_status',' ','false','-- no recommendation --','-- no recommendation --','-- no recommendation --',30,30.999,2,2,'2649721','system_replication;lock_manager;system_view',' ' from DUMMY UNION ALL
 SELECT 4,'ALL','global.ini','resource_tracking','service_thread_sampling_monitor_enabled',' ','true','-- no recommendation --','-- no recommendation --','-- no recommendation --',30,-1,2,2,'2600030-24','thread;monitoring',' ' from DUMMY UNION ALL
 SELECT 1,'ALL','indexserver.ini','sql','use_cfl_for_esx_expression',' ','false','-- no recommendation --','-- no recommendation --','-- no recommendation --',30,-1,2,2,'2660294','indexserver_crash;ESX;memory_manager',' ' from DUMMY UNION ALL
-SELECT 2,'ALL','indexserver.ini','calcengine','enforce_bigint_counters',' ','1','-- no recommendation --','-- no recommendation --','-- no recommendation --',30,30.999,2,2,'2648134','calc_view;calc_engine;attribute_engine',' ' from DUMMY UNION ALL
+SELECT 2,'ALL','indexserver.ini','joins','disable_pruning',' ','true','-- no recommendation --','-- no recommendation --','-- no recommendation --',30,-1,2,2,'2666574','wrong_result;join_engine;partitioning',' ' from DUMMY UNION ALL
+SELECT 1,'ALL','indexserver.ini','sql','hex_enabled',' ','false','-- no recommendation --','-- no recommendation --','-- no recommendation --',30,31.999,2,2,'2663190','indexserver_crash;HEX;LOB',' ' from DUMMY UNION ALL
+SELECT 1,'ALL','global.ini','persistence','recovery_max_load_parallelity',' ','8','-- no recommendation --','-- no recommendation --','-- no recommendation --',30,-1,2,2,'2668174','log_segments',' ' from DUMMY UNION ALL
+SELECT 1,'ERP','indexserver.ini','sql','plan_cache_size',' ','5368709120','-- no recommendation --','-- no recommendation --','-- no recommendation --',30,-1,2,2,'2523230','BSoH;error_2048;sql_plan_cache',' ' from DUMMY UNION ALL
+SELECT 2,'ALL','indexserver.ini','transaction','global_deadlock_check_timeout_on_lock_waiting',' ','<timeout_in_ms>','-- no recommendation --','-- no recommendation --','-- no recommendation --',30,-1,2,2,'2549013-1','lock_manager;deadlock;XS_engine',' ' from DUMMY UNION ALL
+SELECT 3,'MULTI','indexserver.ini','table_placement','balance_by_execution_count',' ','true','-- no recommendation --','-- no recommendation --','-- no recommendation --',30,-1,2,2,'2600030-1','parameter;redistribution;MDC;scale-out',' ' from DUMMY UNION ALL
+SELECT 3,'MULTI','indexserver.ini','table_placement','balance_by_execution_count_weight',' ','1','-- no recommendation --','-- no recommendation --','-- no recommendation --',30,-1,2,2,'2600030-2','parameter;redistribution;MDC;scale-out',' ' from DUMMY UNION ALL
+SELECT 3,'MULTI','indexserver.ini','table_placement','balance_by_execution_time',' ','true','-- no recommendation --','-- no recommendation --','-- no recommendation --',30,-1,2,2,'2600030-3','parameter;redistribution;MDC;scale-out',' ' from DUMMY UNION ALL
+SELECT 3,'MULTI','indexserver.ini','table_placement','balance_by_execution_time_weight',' ','1','-- no recommendation --','-- no recommendation --','-- no recommendation --',30,-1,2,2,'2600030-4','parameter;redistribution;MDC;scale-out',' ' from DUMMY UNION ALL
+SELECT 3,'MULTI','indexserver.ini','table_placement','balance_by_memuse',' ','false','-- no recommendation --','-- no recommendation --','-- no recommendation --',30,-1,2,2,'2600030-5','parameter;redistribution;MDC;scale-out',' ' from DUMMY UNION ALL
+SELECT 3,'MULTI','indexserver.ini','table_placement','balance_by_memuse_weight',' ','1','-- no recommendation --','-- no recommendation --','-- no recommendation --',30,-1,2,2,'2600030-6','parameter;redistribution;MDC;scale-out',' ' from DUMMY UNION ALL
+SELECT 3,'MULTI','indexserver.ini','table_placement','balance_by_part_id',' ','false','-- no recommendation --','-- no recommendation --','-- no recommendation --',30,-1,2,2,'2600030-7','parameter;redistribution;MDC;scale-out',' ' from DUMMY UNION ALL
+SELECT 3,'MULTI','indexserver.ini','table_placement','balance_by_part_id_weight',' ','1','-- no recommendation --','-- no recommendation --','-- no recommendation --',30,-1,2,2,'2600030-8','parameter;redistribution;MDC;scale-out',' ' from DUMMY UNION ALL
+SELECT 3,'MULTI','indexserver.ini','table_placement','balance_by_partnum',' ','false','-- no recommendation --','-- no recommendation --','-- no recommendation --',30,-1,2,2,'2600030-9','parameter;redistribution;MDC;scale-out',' ' from DUMMY UNION ALL
+SELECT 3,'MULTI','indexserver.ini','table_placement','balance_by_partnum_weight',' ','1','-- no recommendation --','-- no recommendation --','-- no recommendation --',30,-1,2,2,'2600030-10','parameter;redistribution;MDC;scale-out',' ' from DUMMY UNION ALL
+SELECT 3,'MULTI','indexserver.ini','table_placement','balance_by_rows',' ','false','-- no recommendation --','-- no recommendation --','-- no recommendation --',30,-1,2,2,'2600030-11','parameter;redistribution;MDC;scale-out',' ' from DUMMY UNION ALL
+SELECT 3,'MULTI','indexserver.ini','table_placement','balance_by_rows_weight',' ','1','-- no recommendation --','-- no recommendation --','-- no recommendation --',30,-1,2,2,'2600030-12','parameter;redistribution;MDC;scale-out',' ' from DUMMY UNION ALL
+SELECT 3,'MULTI','indexserver.ini','table_placement','balance_by_table_classification',' ','false','-- no recommendation --','-- no recommendation --','-- no recommendation --',30,-1,2,2,'2600030-13','parameter;redistribution;MDC;scale-out',' ' from DUMMY UNION ALL
+SELECT 3,'MULTI','indexserver.ini','table_placement','balance_by_table_classification_weight',' ','1','-- no recommendation --','-- no recommendation --','-- no recommendation --',30,-1,2,2,'2600030-14','parameter;redistribution;MDC;scale-out',' ' from DUMMY UNION ALL
+SELECT 3,'MULTI','indexserver.ini','table_placement','balance_by_table_size_hosted',' ','true','-- no recommendation --','-- no recommendation --','-- no recommendation --',30,-1,2,2,'2600030-15','parameter;redistribution;MDC;scale-out',' ' from DUMMY UNION ALL
+SELECT 3,'MULTI','indexserver.ini','table_placement','balance_by_table_size_hosted_weight',' ','1','-- no recommendation --','-- no recommendation --','-- no recommendation --',30,-1,2,2,'2600030-16','parameter;redistribution;MDC;scale-out',' ' from DUMMY UNION ALL
+SELECT 3,'MULTI','indexserver.ini','table_placement','balance_by_table_subclassification',' ','false','-- no recommendation --','-- no recommendation --','-- no recommendation --',30,-1,2,2,'2600030-17','parameter;redistribution;MDC;scale-out',' ' from DUMMY UNION ALL
+SELECT 3,'MULTI','indexserver.ini','table_placement','balance_by_table_subclassification_weight',' ','1','-- no recommendation --','-- no recommendation --','-- no recommendation --',30,-1,2,2,'2600030-18','parameter;redistribution;MDC;scale-out',' ' from DUMMY UNION ALL
+SELECT 3,'SDA','indexserver.ini','smart_data_access','remote_conn_idle_timeout’',' ','600','-- no recommendation --','-- no recommendation --','-- no recommendation --',30,-1,2,2,'2578523','SDA;tcp_timeout;connection_limit',' ' from DUMMY UNION ALL
+SELECT 2,'BW','indexserver.ini','session','socket_keepalive',' ','on','-- no recommendation --','-- no recommendation --','-- no recommendation --',30,-1,2,2,'2621464-1','tcp_timeout;BWoH;error_10107;error_10108;network',' ' from DUMMY UNION ALL
+SELECT 2,'BW','indexserver.ini','session','tcp_keepalive_time',' ','60','-- no recommendation --','-- no recommendation --','-- no recommendation --',30,-1,2,2,'2621464-2','tcp_timeout;BWoH;error_10107;error_10108;network',' ' from DUMMY UNION ALL
+SELECT 2,'BW','indexserver.ini','session','tcp_keepalive_intvl',' ','1','-- no recommendation --','-- no recommendation --','-- no recommendation --',30,-1,2,2,'2621464-3','tcp_timeout;BWoH;error_10107;error_10108;network',' ' from DUMMY UNION ALL
+SELECT 2,'BW','indexserver.ini','session','tcp_keepalive_probes',' ','5','-- no recommendation --','-- no recommendation --','-- no recommendation --',30,-1,2,2,'2621464-4','tcp_timeout;BWoH;error_10107;error_10108;network',' ' from DUMMY UNION ALL
+SELECT 2,'ALL','daemon.ini','daemon','terminationtimeout',' ','600000','-- no recommendation --','-- no recommendation --','-- no recommendation --',30,30.999,2,2,'2633077-1','LOB;GC;',' ' from DUMMY UNION ALL
+SELECT 2,'ALL','indexserver.ini','persistence','disposition_lob_read',' ','1','-- no recommendation --','-- no recommendation --','-- no recommendation --',30,30.999,2,2,'2633077-2','LOB;GC;',' ' from DUMMY UNION ALL
+SELECT 2,'ALL','indexserver.ini','persistence','disposition_lob_read_small',' ','1','-- no recommendation --','-- no recommendation --','-- no recommendation --',30,30.999,2,2,'2633077-3','LOB;GC;',' ' from DUMMY UNION ALL
+SELECT 2,'ALL','indexserver.ini','persistence','disposition_lob_write',' ','1','-- no recommendation --','-- no recommendation --','-- no recommendation --',30,30.999,2,2,'2633077-4','LOB;GC;',' ' from DUMMY UNION ALL
+SELECT 2,'ALL','indexserver.ini','persistence','disposition_lob_write_small',' ','1','-- no recommendation --','-- no recommendation --','-- no recommendation --',30,30.999,2,2,'2633077-5','LOB;GC;',' ' from DUMMY UNION ALL
+SELECT 4,'ALL','indexserver.ini','sqltrace','filesize_limit',' ','2147483648','-- no recommendation --','-- no recommendation --','-- no recommendation --',30,30.999,2,2,'2629103-1','trace;',' ' from DUMMY UNION ALL
+SELECT 4,'ALL','indexserver.ini','sqltrace','max_files',' ','10','-- no recommendation --','-- no recommendation --','-- no recommendation --',30,30.999,2,2,'2629103-2','trace;',' ' from DUMMY UNION ALL
+SELECT 2,'ALL','global.ini','executed_statement','enable_ddl',' ','off','-- no recommendation --','-- no recommendation --','-- no recommendation --',30,30.999,2,2,'2627000','migration;',' ' from DUMMY UNION ALL
+SELECT 2,'ALL','indexserver.ini','sql','multistore_feature_toggle',' ','multistore_operator,column,update,false','-- no recommendation --','-- no recommendation --','-- no recommendation --',30,31.999,2,2,'2600030-23','parameter;performance;bulk_load',' ' from DUMMY UNION ALL
+SELECT 2,'ALL','indexserver.ini','session','data_format_version',' ','<6|7>','-- no recommendation --','-- no recommendation --','-- no recommendation --',30,30.999,2,2,'2638379','HANA_client;JDBC;SQLDBC',' ' from DUMMY UNION ALL
+SELECT 2,'MULTI','indexserver.ini','transaction','global_deadlock_check_timeout_on_lock_waiting',' ','<timeout_in_ms>','-- no recommendation --','-- no recommendation --','-- no recommendation --',30,-1,2,2,'2549013-3','scale-out;lock_manager;deadlock',' ' from DUMMY UNION ALL
+SELECT 2,'MULTI','indexserver.ini','transaction','lock_wait_timeout',' ','5*<timeout_in_ms>','-- no recommendation --','-- no recommendation --','-- no recommendation --',30,-1,2,2,'2549013-4','scale-out;lock_manager;deadlock',' ' from DUMMY UNION ALL
+SELECT 1,'ALL','global.ini','memoryobjects','heap_preparation_interval',' ','300000000','-- no recommendation --','-- no recommendation --','-- no recommendation --',30,-1,2,2,'2652487','indexserver_crash;resource_manager',' ' from DUMMY UNION ALL
+SELECT 3,'SDI','dpserver.ini','framework','agentSSLUsage',' ','always','-- no recommendation --','-- no recommendation --','-- no recommendation --',31,-1,2,2,'2659606','SSL;encryption;data_provisioning;SDI',' ' from DUMMY UNION ALL
+SELECT 1,'MULTI','indexserver.ini','search','late_materialization_threshold',' ','-1','-- no recommendation --','-- no recommendation --','-- no recommendation --',30,-1,2,2,'2662717','indexserver_crash;scale-out',' ' from DUMMY UNION ALL
+SELECT 1,'ALL','indexserver.ini','table_consistency_check','max_num_large_jobs',' ','1000','-- no recommendation --','-- no recommendation --','-- no recommendation --',30,-1,2,2,'2668851','indexserver_crash;consistency',' ' from DUMMY UNION ALL
+SELECT 2,'BW','indexserver.ini','calcengine','ce2qo_enable_boundary_op',' ','0','-- no recommendation --','-- no recommendation --','-- no recommendation --',30,29.999,2,2,'2517443','performance; calc_view;Bex;memory_leak;FEMS;BWoH',' ' from DUMMY UNION ALL
+SELECT 2,'ALL','indexserver.ini','metadata','enable_drop_global_temp_row_in_use',' ','true','-- no recommendation --','-- no recommendation --','-- no recommendation --',30,-1,2,2,'2503043','RowStore;GTT',' ' from DUMMY UNION ALL
+SELECT 1,'ALL','indexserver.ini','sql','esx_level',' ','0','-- no recommendation --','-- no recommendation --','-- no recommendation --',30,-1,2,2,'2651830','indexserver_crash;ESX',' ' from DUMMY UNION ALL
 SELECT 3,'ALL','indexserver.ini','session','data_format_version',' ','8','-- no recommendation --','-- no recommendation --','-- no recommendation --',30,30.999,2,2,'2639764','SQL_round;wrong_result',' ' from DUMMY UNION ALL
-SELECT 1,'MULTI','indexserver.ini','search','late_materialization_threshold',' ','-1','-- no recommendation --','-- no recommendation --','-- no recommendation --',30,-1,2,2,'2662717','indexserver_crash;scale-out;late_materialization',' ' from DUMMY UNION ALL
-SELECT 1,'ALL','indexserver.ini','sql','hex_enabled',' ','false','-- no recommendation --','-- no recommendation --','-- no recommendation --',30,-1,2,2,'2663190','indexserver_crash;HEX;LOB',' ' from DUMMY UNION ALL
+SELECT 2,'ALL','indexserver.ini','table_replication','update_log_table_status',' ','-- no recommendation --','-- no recommendation --','-- no recommendation --','-- no recommendation --',30,30.999,2,2,'2673956-1','replicated_table;diskfull',' ' from DUMMY UNION ALL
+SELECT 2,'ALL','indexserver.ini','transaction','replication_log_check_timeout',' ','8640000','-- no recommendation --','-- no recommendation --','-- no recommendation --',30,30.999,2,2,'2673956-2','replicated_table;diskfull',' ' from DUMMY UNION ALL
+SELECT 2,'ALL','global.ini','memoryobjects','unused_retention_period',' ','0 or >=3600','-- no recommendation --','-- no recommendation --','-- no recommendation --',30,-1,2,2,'2600030-25','performance;unload;memory_management',' ' from DUMMY UNION ALL
     SELECT 3, 'ALL',         'xsengine.ini',         'sql',                      'use_startup_timezone',                      ' ', 'false',                    '-- no recommendation --', '-- no recommendation --', '-- no recommendation --', 65,    68,  1,  1, '1932132', 'terminations',   ' ' FROM DUMMY 
   ) P
 ),
@@ -1290,17 +1340,15 @@ PARAMETER_SETTINGS AS
     PARAMETER_NAME,
     DEFAULT_VALUE,
     USER_VALUE,
-    DEFAULT_HOST,
-    USER_HOST
+    CONFIG_LAYER
   FROM 
   ( SELECT
-      P1.HOST DEFAULT_HOST,
-      P2.HOST USER_HOST,
       P1.FILE_NAME,
       P1.SECTION,
       P1.KEY PARAMETER_NAME,
       P1.VALUE DEFAULT_VALUE,
-      P2.VALUE USER_VALUE
+      P2.VALUE USER_VALUE,
+      P2.LAYER_NAME || MAP(P2.LAYER_NAME, 'HOST', CHAR(32) || '(' || P2.HOST || ')', '') CONFIG_LAYER
     FROM
       M_INIFILE_CONTENTS P1,
       M_INIFILE_CONTENTS P2
@@ -1310,16 +1358,15 @@ PARAMETER_SETTINGS AS
       P1.SECTION = P2.SECTION AND
       P1.KEY = P2.KEY AND
       P1.LAYER_NAME = 'DEFAULT' AND
-      P2.LAYER_NAME IN ( 'SYSTEM', 'HOST' )
+      P2.LAYER_NAME != 'DEFAULT'
     UNION ALL
     ( SELECT 
-        P1.HOST DEFAULT_HOST,
-        '-- not set --' USER_HOST,
         P1.FILE_NAME,
         P1.SECTION,
         P1.KEY PARAMETER_NAME,
         P1.VALUE DEFAULT_VALUE,
-        '-- not set --' USER_VALUE
+        '-- not set --' USER_VALUE,
+        '-- not set --' CONFIG_LAYER
       FROM
         M_INIFILE_CONTENTS P1
       WHERE
@@ -1334,18 +1381,17 @@ PARAMETER_SETTINGS AS
             P1.FILE_NAME = P2.FILE_NAME AND
             P1.SECTION = P2.SECTION AND
             P1.KEY = P2.KEY AND
-            P2.LAYER_NAME IN ( 'SYSTEM', 'HOST' )
+            P2.LAYER_NAME != 'DEFAULT'
         )
     )
     UNION ALL
     ( SELECT
-        '-- HANA internal --'  DEFAULT_HOST,
-        P2.HOST USER_HOST,
         P2.FILE_NAME,
         P2.SECTION,
         P2.KEY PARAMETER_NAME,
         '-- HANA internal --' DEFAULT_VALUE,
-        P2.VALUE USER_VALUE
+        P2.VALUE USER_VALUE,
+        P2.LAYER_NAME || MAP(P2.LAYER_NAME, 'HOST', CHAR(32) || '(' || P2.HOST || ')', '') CONFIG_LAYER
       FROM
         M_INIFILE_CONTENTS P2
       WHERE
@@ -1365,7 +1411,7 @@ PARAMETER_SETTINGS AS
     )
   )
 ),
-PARAMETERS AS
+PARAMETERS_HELPER AS
 ( SELECT
     FILE_NAME,
     SECTION,
@@ -1373,8 +1419,7 @@ PARAMETERS AS
     PRIORITY,
     DEFAULT_VALUE,
     USER_VALUE,
-    DEFAULT_HOST,
-    USER_HOST,
+    CONFIG_LAYER,
     ENV,
     NOT_1,
     CASE MIN_VALUE_1
@@ -1429,8 +1474,8 @@ PARAMETERS AS
     MIN_REV,
     MAX_REV,
     IFNULL(IFNULL(MAP(SAP_NOTE, '', NULL, SAP_NOTE), MAP(SAP_NOTE_FALLBACK, '', NULL, SAP_NOTE_FALLBACK)), ' ') SAP_NOTE,
-    IFNULL(IFNULL(AREA, AREA_FALLBACK), ' ') AREA,   
-    IFNULL(IFNULL(TYPE, TYPE_FALLBACK), ' ') TYPE    
+    IFNULL(IFNULL(AREA, AREA_FALLBACK), ' ') AREA,
+    IFNULL(IFNULL(TYPE, TYPE_FALLBACK), ' ') TYPE
   FROM
   ( SELECT 
       IFNULL(PS.FILE_NAME, PI.FILE_NAME) FILE_NAME,
@@ -1438,8 +1483,7 @@ PARAMETERS AS
       IFNULL(PS.PARAMETER_NAME, PI.PARAMETER_NAME) PARAMETER_NAME,
       IFNULL(PS.DEFAULT_VALUE, '-- HANA internal --') DEFAULT_VALUE,
       IFNULL(PS.USER_VALUE, '-- not set --') USER_VALUE,
-      IFNULL(PS.DEFAULT_HOST, '-- HANA internal --') DEFAULT_HOST,
-      IFNULL(PS.USER_HOST, '-- not set --') USER_HOST,
+      IFNULL(PS.CONFIG_LAYER, '-- not set --') CONFIG_LAYER,
       IFNULL(PI.P, 0) PRIORITY,
       IFNULL(PI.ENV, 'ALL') ENV,
       IFNULL(PI.NOT_1, ' ') NOT_1,
@@ -1466,6 +1510,40 @@ PARAMETERS AS
   ),
   ( SELECT CHECK_VERSION, CHECK_REVISION, BI_CPU_THREADS, ALLOC_LIM_GB, BI_ALLOC_LIM_GB, CPU_FREQUENCY_MHZ, CPU_THREADS, NUM_SLAVES FROM BASIS_INFO ) BI
 ),
+PARAMETERS AS
+( SELECT
+    *
+  FROM
+    PARAMETERS_HELPER
+  UNION     /* MDC system DB: Duplicate indexserver recommendations to nameserver */
+  SELECT
+    'nameserver.ini' FILE_NAME,
+    P.SECTION,
+    P.PARAMETER_NAME,
+    P.PRIORITY,
+    P.DEFAULT_VALUE,
+    P.USER_VALUE,
+    P.CONFIG_LAYER,
+    P.ENV,
+    P.NOT_1,
+    P.MIN_VALUE_1,
+    P.MAX_VALUE_1,
+    P.MIN_VALUE_2,
+    P.MAX_VALUE_2,
+    P.MIN_VERS,
+    P.MAX_VERS,
+    P.MIN_REV,
+    P.MAX_REV,
+    P.SAP_NOTE,
+    P.AREA,
+    P.TYPE
+  FROM
+    BASIS_INFO BI,
+    PARAMETERS_HELPER P
+  WHERE
+    BI.ENV LIKE '%MDCSYS%' AND
+    P.FILE_NAME = 'indexserver.ini'
+),
 PARAMETER_RECOMMENDATIONS AS
 ( SELECT
     P.FILE_NAME,
@@ -1481,48 +1559,52 @@ PARAMETER_RECOMMENDATIONS AS
       END RECOMMENDED_VALUE,
     P.SAP_NOTE,
     P.AREA,
-    P.DEFAULT_HOST,
-    P.USER_HOST,  
+    P.CONFIG_LAYER,  
     CASE WHEN
-    ( P.MIN_VALUE_1 = '-- no recommendation --' AND
-      P.MAX_VALUE_1 = '-- no recommendation --' 
-    ) OR
-    ( P.MIN_VALUE_1 = '-- individual value --' AND 
-      P.USER_VALUE != '-- not set --' 
-    ) OR
-    ( P.PARAMETER_NAME IN ( 'auto_merge_decision_func', 'critical_merge_decision_func' ) AND
-      UPPER(REPLACE(P.MIN_VALUE_1, CHAR(32), '')) = UPPER(REPLACE(P.CONFIG_VALUE, CHAR(32), ''))
-    ) OR
-    ( P.MIN_VALUE_1 != '-- individual value --' AND 
-      P.PARAMETER_NAME NOT IN ( 'auto_merge_decision_func', 'critical_merge_decision_func' ) AND
-      ( ( NOT_1 = ' ' AND
-          ( P.MAX_VALUE_1 = '-- no recommendation --' AND P.CONFIG_VALUE = LPAD(P.MIN_VALUE_1, 1000) OR
-            P.MAX_VALUE_1 != '-- no recommendation --' AND P.CONFIG_VALUE BETWEEN LPAD(P.MIN_VALUE_1, 1000) AND LPAD(P.MAX_VALUE_1, 1000)
-          )
-        ) OR
-        ( NOT_1 = 'X' AND
-          ( P.MAX_VALUE_1 = '-- no recommendation --' AND P.CONFIG_VALUE != LPAD(P.MIN_VALUE_1, 1000) OR
-            P.MAX_VALUE_1 != '-- no recommendation --' AND P.CONFIG_VALUE NOT BETWEEN LPAD(P.MIN_VALUE_1, 1000) AND LPAD(P.MAX_VALUE_1, 1000)
+    ( ( P.MIN_VALUE_1 = '-- no recommendation --' AND
+        P.MAX_VALUE_1 = '-- no recommendation --' 
+      ) OR
+      ( P.MIN_VALUE_1 = '-- individual value --' AND 
+        P.USER_VALUE != '-- not set --' 
+      ) OR
+      ( P.PARAMETER_NAME IN ( 'auto_merge_decision_func', 'critical_merge_decision_func' ) AND
+        UPPER(REPLACE(P.MIN_VALUE_1, CHAR(32), '')) = UPPER(REPLACE(P.CONFIG_VALUE, CHAR(32), ''))
+      ) OR
+      ( P.MIN_VALUE_1 != '-- individual value --' AND 
+        P.PARAMETER_NAME NOT IN ( 'auto_merge_decision_func', 'critical_merge_decision_func' ) AND
+        ( ( NOT_1 = ' ' AND
+            ( P.MAX_VALUE_1 = '-- no recommendation --' AND P.CONFIG_VALUE = LPAD(P.MIN_VALUE_1, 1000) OR
+              P.MAX_VALUE_1 != '-- no recommendation --' AND P.CONFIG_VALUE BETWEEN LPAD(P.MIN_VALUE_1, 1000) AND LPAD(P.MAX_VALUE_1, 1000)
+            )
+          ) OR
+          ( NOT_1 = 'X' AND
+            ( P.MAX_VALUE_1 = '-- no recommendation --' AND P.CONFIG_VALUE != LPAD(P.MIN_VALUE_1, 1000) OR
+              P.MAX_VALUE_1 != '-- no recommendation --' AND P.CONFIG_VALUE NOT BETWEEN LPAD(P.MIN_VALUE_1, 1000) AND LPAD(P.MAX_VALUE_1, 1000)
+            )
           )
         )
+      ) OR
+      ( P.MAX_VALUE_2 = '-- no recommendation --' AND 
+        P.CONFIG_VALUE = LPAD(P.MIN_VALUE_2, 1000)
+      ) OR
+      ( P.MAX_VALUE_2 != '-- no recommendation --' AND 
+        P.CONFIG_VALUE BETWEEN LPAD(P.MIN_VALUE_2, 1000) AND LPAD(P.MAX_VALUE_2, 1000)
       )
-    ) OR
-    ( P.MAX_VALUE_2 = '-- no recommendation --' AND 
-      P.CONFIG_VALUE = LPAD(P.MIN_VALUE_2, 1000)
-    ) OR
-    ( P.MAX_VALUE_2 != '-- no recommendation --' AND 
-      P.CONFIG_VALUE BETWEEN LPAD(P.MIN_VALUE_2, 1000) AND LPAD(P.MAX_VALUE_2, 1000)
+    ) AND NOT        /* Make sure that columns with integer recommendations only have integer values and nothing else like '21 GB', '40 to 80' or '12,00' */
+    ( ( P.MIN_VALUE_1 LIKE_REGEXPR '^[0-9]+$' OR P.MIN_VALUE_1 = '-- SPECIAL --' ) AND
+        LTRIM(P.CONFIG_VALUE) NOT LIKE_REGEXPR '^[0-9]+$'
     )
     THEN 'X' ELSE ' ' END SET_CORRECTLY
   FROM
     BASIS_INFO BI,
   ( SELECT
-      P.*,
+      *,
       LPAD(MAP(P.USER_VALUE, '-- not set --', P.DEFAULT_VALUE, P.USER_VALUE), 1000) CONFIG_VALUE
     FROM
       PARAMETERS P
   ) P
   WHERE
+  NOT ( BI.ENV LIKE '%MDCSYS%' AND P.FILE_NAME != 'nameserver.ini' AND P.USER_VALUE = '-- not set --' ) AND     /* avoid non-nameserver recommendations in system DB, but mention wrong existing settings */
   ( ( P.ENV = 'ALL' OR
       ( ( LOCATE(P.ENV, 'ABAP')   > 0 AND LOCATE(BI.ENV, 'ABAP')   > 0 ) OR
         ( LOCATE(P.ENV, 'BPC')    > 0 AND LOCATE(BI.ENV, 'BPC')    > 0 ) OR
@@ -1588,8 +1670,8 @@ SELECT
   DEFAULT_VALUE,
   CONFIGURED_VALUE,
   RECOMMENDED_VALUE,
-  SAP_NOTE SAP_NOTES,
-  CONFIGURED_HOST,
+  MAX(SAP_NOTE) SAP_NOTES,
+  CONFIG_LAYER,
   IMPLEMENTATION_COMMAND,
   UNDO_COMMAND
 FROM
@@ -1603,7 +1685,7 @@ FROM
     '' CONFIGURED_VALUE,
     '' RECOMMENDED_VALUE,
     '' SAP_NOTE,
-    '' CONFIGURED_HOST,
+    '' CONFIG_LAYER,
     '' IMPLEMENTATION_COMMAND,
     '' UNDO_COMMAND
   FROM
@@ -1612,7 +1694,7 @@ FROM
   ( SELECT 
       14, 
       'QPCM Statement version:',
-      '3.3.1 (2018/07/04)',
+      '3.3.2 (2018/07/30)',
       '', '', '', '', '', '', '', '', ''
     FROM
       DUMMY
@@ -1693,7 +1775,7 @@ FROM
       CONFIGURED_VALUE,
       RECOMMENDED_VALUE,
       MAX(SAP_NOTE) SAP_NOTE,
-      CONFIGURED_HOST,
+      CONFIG_LAYER,
       IMPLEMENTATION_COMMAND,
       UNDO_COMMAND
     FROM
@@ -1707,7 +1789,7 @@ FROM
         CONFIGURED_VALUE,
         RECOMMENDED_VALUE,
         SAP_NOTE,
-        CONFIGURED_HOST,
+        CONFIG_LAYER,
         IMPLEMENTATION_COMMAND,
         UNDO_COMMAND
       FROM
@@ -1720,16 +1802,16 @@ FROM
           MAP(MAX_VALUE_LENGTH, -1, USER_VALUE,        SUBSTR(USER_VALUE,        1, MAX_VALUE_LENGTH)) CONFIGURED_VALUE,
           MAP(MAX_VALUE_LENGTH, -1, RECOMMENDED_VALUE, SUBSTR(RECOMMENDED_VALUE, 1, MAX_VALUE_LENGTH)) RECOMMENDED_VALUE,
           SAP_NOTE,
-          USER_HOST CONFIGURED_HOST,
+          CONFIG_LAYER,
           'ALTER SYSTEM ALTER CONFIGURATION (' || CHAR(39) || FILE_NAME || CHAR(39) || ',' || CHAR(32) || CHAR(39) || 
-            MAP(USER_HOST, '', 'SYSTEM', '-- not set --', 'SYSTEM', 'HOST' || CHAR(39) || ',' || CHAR(32) || CHAR(39) || USER_HOST) || CHAR(39) || ')' || CHAR(32) ||
+            MAP(CONFIG_LAYER, '', 'SYSTEM', '-- not set --', 'SYSTEM', 'HOST' || CHAR(39) || ',' || CHAR(32) || CHAR(39) || CONFIG_LAYER) || CHAR(39) || ')' || CHAR(32) ||
             MAP(RECOMMENDED_VALUE, '-- no recommendation --', 'UN', '') || 'SET (' || CHAR(39) || SECTION || CHAR(39) || ',' || CHAR(32) ||
             CHAR(39) || PARAMETER_NAME || CHAR(39) || ')' ||
             MAP(RECOMMENDED_VALUE, '-- no recommendation --', '', CHAR(32) || '=' || CHAR(32) || CHAR(39) || 
             CASE WHEN RECOMMENDED_VALUE LIKE '% to %' THEN SUBSTR(RECOMMENDED_VALUE, 1, LOCATE(RECOMMENDED_VALUE, ' to ') - 1) ELSE RECOMMENDED_VALUE END || 
             CHAR(39)) || ' WITH RECONFIGURE' || CHAR(59) IMPLEMENTATION_COMMAND,
           'ALTER SYSTEM ALTER CONFIGURATION (' || CHAR(39) || FILE_NAME || CHAR(39) || ',' || CHAR(32) || CHAR(39) || 
-            MAP(USER_HOST, '', 'SYSTEM', '-- not set --', 'SYSTEM', 'HOST' || CHAR(39) || ',' || CHAR(32) || CHAR(39) || USER_HOST) || CHAR(39) || ')' || CHAR(32) ||
+            MAP(CONFIG_LAYER, '', 'SYSTEM', '-- not set --', 'SYSTEM', 'HOST' || CHAR(39) || ',' || CHAR(32) || CHAR(39) || CONFIG_LAYER) || CHAR(39) || ')' || CHAR(32) ||
             MAP(RECOMMENDED_VALUE, '-- no recommendation --', '', 'UN') || 'SET (' || CHAR(39) || SECTION || CHAR(39) || ',' || CHAR(32) ||
             CHAR(39) || PARAMETER_NAME || CHAR(39) || ')' ||
             MAP(RECOMMENDED_VALUE, '-- no recommendation --', CHAR(32) || '=' || CHAR(32) || CHAR(39) || USER_VALUE || CHAR(39), '') || ' WITH RECONFIGURE' || CHAR(59) UNDO_COMMAND
@@ -1744,8 +1826,7 @@ FROM
             PR.PRIORITY,
             PR.SAP_NOTE,
             PR.AREA,
-            PR.DEFAULT_HOST,
-            PR.USER_HOST,
+            PR.CONFIG_LAYER,
             BI.MAX_VALUE_LENGTH
           FROM
             BASIS_INFO BI,
@@ -1766,8 +1847,7 @@ FROM
             P.PRIORITY,
             P.SAP_NOTE,
             P.AREA,
-            P.DEFAULT_HOST,
-            P.USER_HOST,
+            P.CONFIG_LAYER,
             BI.MAX_VALUE_LENGTH
           FROM
             BASIS_INFO BI,
@@ -1808,10 +1888,21 @@ FROM
       DEFAULT_VALUE,
       CONFIGURED_VALUE,
       RECOMMENDED_VALUE,
-      CONFIGURED_HOST,
+      CONFIG_LAYER,
       IMPLEMENTATION_COMMAND,
       UNDO_COMMAND
   )
 )
+GROUP BY
+  FILE_NAME,
+  SECTION,
+  PARAMETER_NAME,
+  P,
+  DEFAULT_VALUE,
+  CONFIGURED_VALUE,
+  RECOMMENDED_VALUE,
+  CONFIG_LAYER,
+  IMPLEMENTATION_COMMAND,
+  UNDO_COMMAND
 ORDER BY
-  LINE_NO
+  MIN(LINE_NO)
